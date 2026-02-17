@@ -1,0 +1,27 @@
+[project]
+name = "claude-insights"
+version = "0.1.0"
+description = "Infrastructure scanner and usage analytics dashboard for Claude Code configurations"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "streamlit>=1.38",
+    "plotly>=5.22",
+    "pandas>=2.2",
+    "pydantic>=2.7",
+    "python-frontmatter>=1.1",
+]
+
+[project.scripts]
+claude-insights = "claude_insights.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claude_insights"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/"]
