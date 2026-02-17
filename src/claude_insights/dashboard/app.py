@@ -9,7 +9,15 @@ from claude_insights.analytics.parsers.execution_log_parser import (
     parse_agent_executions,
     parse_skill_executions,
 )
-from claude_insights.dashboard.layouts import overview, token_usage, sessions, agents_skills, costs
+from claude_insights.analytics.parsers.conversation_enricher import (
+    mine_tool_usage_stats,
+    extract_tool_usage_detailed,
+)
+from claude_insights.analytics.data_merger import (
+    merge_agent_executions,
+    merge_skill_executions,
+)
+from claude_insights.dashboard.layouts import overview, token_usage, sessions, agents_skills, costs, optimization
 
 
 def run_dashboard(port: int = 8501):
@@ -36,12 +44,13 @@ def main():
     skill_execs = load_skill_executions()
 
     # Navigation tabs
-    tab_overview, tab_tokens, tab_sessions, tab_agents, tab_costs = st.tabs([
+    tab_overview, tab_tokens, tab_sessions, tab_agents, tab_costs, tab_optimize = st.tabs([
         "📊 Overview",
         "🪙 Token Usage",
         "⏱️ Sessions",
         "🤖 Agents & Skills",
         "💰 Costs",
+        "🎯 Optimization",
     ])
 
     with tab_overview:
@@ -59,6 +68,9 @@ def main():
     with tab_costs:
         costs.render(stats)
 
+    with tab_optimize:
+        optimization.render(agent_execs, skill_execs)
+
 
 @st.cache_data(ttl=300)
 def load_stats():
@@ -66,13 +78,34 @@ def load_stats():
 
 
 @st.cache_data(ttl=300)
+def load_all_executions():
+    """Load and merge execution data from both logs and conversations."""
+    # Get data from execution logs (recent, with outcome_preview)
+    log_agents = parse_agent_executions()
+    log_skills = parse_skill_executions()
+
+    # Get historical data from conversations (goes back to Jan 2025)
+    conv_data = extract_tool_usage_detailed(limit=2000)  # Get up to 2000 historical records
+
+    # Merge and deduplicate
+    merged_agents = merge_agent_executions(log_agents, conv_data.agent_executions)
+    merged_skills = merge_skill_executions(log_skills, conv_data.skill_executions)
+
+    return merged_agents, merged_skills
+
+
+@st.cache_data(ttl=300)
 def load_agent_executions():
-    return parse_agent_executions()
+    """Load merged agent executions."""
+    agents, _ = load_all_executions()
+    return agents
 
 
 @st.cache_data(ttl=300)
 def load_skill_executions():
-    return parse_skill_executions()
+    """Load merged skill executions."""
+    _, skills = load_all_executions()
+    return skills
 
 
 if __name__ == "__main__":

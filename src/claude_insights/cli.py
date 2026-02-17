@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 
 app = typer.Typer(
     name="claude-insights",
@@ -24,6 +25,11 @@ def scan(
         "--output", "-o",
         help="Output file for the scan report",
     ),
+    no_conversations: bool = typer.Option(
+        False,
+        "--no-conversations",
+        help="Skip mining conversation archives (faster, but less complete)",
+    ),
 ):
     """Scan Claude Code infrastructure for issues and generate a report."""
     from claude_insights.scanner.agent_scanner import scan_agents
@@ -34,6 +40,11 @@ def scan(
     from claude_insights.analytics.parsers.execution_log_parser import (
         parse_agent_executions,
         parse_skill_executions,
+    )
+    from claude_insights.analytics.parsers.conversation_enricher import mine_tool_usage_stats
+    from claude_insights.analytics.data_merger import (
+        merge_agent_executions,
+        merge_skill_executions,
     )
     from claude_insights.analytics.aggregators.usage_aggregator import (
         agent_usage_counts,
@@ -50,21 +61,59 @@ def scan(
         claude_md_files, claude_md_issues = scan_claude_md_files()
 
         # Parse execution logs for usage data
-        agent_execs = parse_agent_executions()
-        skill_execs = parse_skill_executions()
+        log_agent_execs = parse_agent_executions()
+        log_skill_execs = parse_skill_executions()
 
-        # Enrich agents/skills with usage data
-        a_counts = agent_usage_counts(agent_execs)
-        s_counts = skill_usage_counts(skill_execs)
+        if not no_conversations:
+            # Mine historical data from conversations
+            console.print("[dim]Mining conversation archives for historical data...[/]")
+            conv_stats = mine_tool_usage_stats(use_cache=True)
+
+            # Convert stats to lightweight execution objects for counting
+            conv_agent_execs = [
+                {"timestamp": "", "session_id": "", "agent_type": agent_name, "prompt": "", "status": "unknown"}
+                for agent_name, count in conv_stats.agents.items()
+                for _ in range(min(count, 10))  # Cap at 10 per agent to avoid memory bloat
+            ]
+            conv_skill_execs = [
+                {"timestamp": "", "session_id": "", "skill_name": skill_name, "args": "", "status": "unknown"}
+                for skill_name, count in conv_stats.skills.items()
+                for _ in range(min(count, 10))  # Cap at 10 per skill to avoid memory bloat
+            ]
+
+            # Merge data sources
+            agent_execs = merge_agent_executions(log_agent_execs, conv_agent_execs)
+            skill_execs = merge_skill_executions(log_skill_execs, conv_skill_execs)
+
+            # Use aggregated stats for counts (more accurate than capped objects)
+            a_counts = conv_stats.agents
+            s_counts = conv_stats.skills
+        else:
+            agent_execs = log_agent_execs
+            skill_execs = log_skill_execs
+            a_counts = agent_usage_counts(agent_execs)
+            s_counts = skill_usage_counts(skill_execs)
+
+        # Get last used times from actual executions
         a_last = agent_last_used(agent_execs)
         s_last = skill_last_used(skill_execs)
 
         for agent in agents:
-            agent.execution_count = a_counts.get(agent.name, 0)
+            # For conversation stats, a_counts is a dict directly
+            if isinstance(a_counts, dict):
+                agent.execution_count = a_counts.get(agent.name, 0)
+            else:
+                # For execution logs, a_counts is from usage_counts function
+                agent.execution_count = a_counts.get(agent.name, 0)
             agent.last_used = a_last.get(agent.name, "")
 
         for skill in skills:
-            skill.execution_count = s_counts.get(skill.name, 0)
+            # For conversation stats, s_counts is a dict directly
+            if isinstance(s_counts, dict):
+                skill.execution_count = s_counts.get(skill.name, 0)
+            else:
+                # For execution logs, s_counts is from usage_counts function
+                skill.execution_count = s_counts.get(skill.name, 0)
             skill.last_used = s_last.get(skill.name, "")
 
         # Cross-reference routing tables
@@ -161,6 +210,43 @@ def stats():
                 f"${row['total_cost']:,.2f}",
             )
     console.print(model_table)
+
+
+@app.command()
+def optimize(
+    output: Path = typer.Option(
+        Path("optimization-report.md"),
+        "--output", "-o",
+        help="Output file for the optimization report",
+    ),
+    include_conversations: bool = typer.Option(
+        True,
+        "--include-conversations/--no-conversations",
+        help="Include conversation analysis for deeper insights",
+    ),
+):
+    """Analyze Claude configuration for optimization opportunities."""
+    from claude_insights.analytics.optimization_analyzer import generate_optimization_report
+    from rich.panel import Panel
+
+    with console.status("[bold green]Analyzing configuration for optimizations..."):
+        report = generate_optimization_report(include_conversations)
+
+        # Count issues by severity
+        critical_count = report.count("🚨 Critical")
+        quick_wins = report.count("⚡ Quick Win")
+        opportunities = report.count("💡 Opportunity")
+
+    # Write report
+    output.write_text(report)
+
+    # Show summary in terminal
+    console.print(Panel.fit(
+        f"[bold green]✅ Optimization report generated[/bold green]\n"
+        f"📄 Output: {output}\n"
+        f"Found {critical_count} critical issues, {quick_wins} quick wins, {opportunities} opportunities",
+        title="Optimization Analysis Complete",
+    ))
 
 
 @app.command()

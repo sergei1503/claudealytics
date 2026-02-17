@@ -58,18 +58,53 @@ class AgentExecution(BaseModel):
     timestamp: str
     session_id: str = ""
     type: str = "agent"
-    agent: str = ""
+    agent_type: str = ""  # Standardized field name
+    agent: str = ""  # Keep for backward compatibility
+    prompt: str = ""  # Added for conversation data
     description: str = ""
     outcome_preview: str = ""
+    status: str = "unknown"  # Added for tracking completion status
+    total_tokens: int = 0  # Added for token tracking
+    model: str = "unknown"  # Added for model tracking
+
+    def __init__(self, **data):
+        # Handle both field names for backward compatibility
+        if "agent" in data and "agent_type" not in data:
+            data["agent_type"] = data["agent"]
+        elif "agent_type" in data and "agent" not in data:
+            data["agent"] = data["agent_type"]
+        super().__init__(**data)
 
 
 class SkillExecution(BaseModel):
     timestamp: str
     session_id: str = ""
     type: str = "skill"
-    skill: str = ""
+    skill_name: str = ""  # Standardized field name
+    skill: str = ""  # Keep for backward compatibility
     args: str = ""
     outcome_preview: str = ""
+    status: str = "unknown"  # Added for tracking completion status
+
+    def __init__(self, **data):
+        # Handle both field names for backward compatibility
+        if "skill" in data and "skill_name" not in data:
+            data["skill_name"] = data["skill"]
+        elif "skill_name" in data and "skill" not in data:
+            data["skill"] = data["skill_name"]
+        super().__init__(**data)
+
+
+# ── Tool Usage Stats Models ─────────────────────────────────────────
+
+class ToolUsageStats(BaseModel):
+    """Aggregated statistics for tool usage - lightweight data structure."""
+    agents: dict[str, int] = Field(default_factory=dict)  # agent_name -> count
+    skills: dict[str, int] = Field(default_factory=dict)  # skill_name -> count
+    daily_agents: dict[str, dict[str, int]] = Field(default_factory=dict)  # date -> agent -> count
+    daily_skills: dict[str, dict[str, int]] = Field(default_factory=dict)  # date -> skill -> count
+    total_conversations: int = 0
+    date_range: tuple[str, str] = ("", "")  # (earliest, latest)
 
 
 # ── Session Models ──────────────────────────────────────────────────
