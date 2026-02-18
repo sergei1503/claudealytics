@@ -4,9 +4,9 @@ Analytics dashboard for Claude Code power users. Mine your local conversation hi
 
 ## Screenshots
 
-| Overview | Costs | Agents & Skills |
-|----------|-------|-----------------|
-| ![Overview](docs/screenshots/overview.png) | ![Costs](docs/screenshots/costs.png) | ![Agents & Skills](docs/screenshots/agents_skills.png) |
+| Overview | Sessions | Agents & Skills |
+|----------|----------|-----------------|
+| ![Overview](docs/screenshots/overview.png) | ![Sessions](docs/screenshots/sessions.png) | ![Agents & Skills](docs/screenshots/agents_skills.png) |
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ Open http://localhost:8501 in your browser.
 
 ## Dashboard Tabs
 
-**Overview** - KPI cards (sessions, messages, agent invocations, estimated cost) and daily activity chart.
+**Overview** - KPI cards (sessions, messages, agent invocations) and daily activity chart.
 
 **Token Usage** - Token consumption breakdown by model over time, with input/output/cache split.
 ![Token Usage](docs/screenshots/token_usage.png)
@@ -31,9 +31,6 @@ Open http://localhost:8501 in your browser.
 
 **Agents & Skills** - Which agents and skills you actually use, how often, and usage trends.
 ![Agents & Skills](docs/screenshots/agents_skills.png)
-
-**Costs** - Daily spending estimates with total/average/peak metrics and date range filtering.
-![Costs](docs/screenshots/costs.png)
 
 **Optimization** - Data-driven recommendations for improving your Claude Code setup.
 ![Optimization](docs/screenshots/optimization.png)
