@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from claude_insights.analytics.parsers.stats_cache_parser import parse_stats_cache
@@ -39,6 +41,14 @@ def main():
     )
 
     st.title("🔍 Claude Code Insights Dashboard")
+
+    # Global refresh button in the header area
+    col_spacer, col_refresh = st.columns([5, 1])
+    with col_refresh:
+        if st.button("🔄 Refresh Data", use_container_width=True):
+            _clear_data_caches()
+            st.cache_data.clear()
+            st.rerun()
 
     # Load data (cached)
     stats = load_stats()
@@ -82,6 +92,18 @@ def main():
 
     with tab_config:
         config_health.render()
+
+
+def _clear_data_caches():
+    """Clear file-level caches so data is re-parsed from source.
+
+    Does NOT clear config-analysis.json (deep dive) or user preferences.
+    """
+    cache_dir = Path.home() / ".cache" / "claude-insights"
+    for name in ("tool-index.json", "tool-stats.json", "token-mine.json"):
+        p = cache_dir / name
+        if p.exists():
+            p.unlink()
 
 
 @st.cache_data(ttl=300)

@@ -24,13 +24,6 @@ from claude_insights.models.schemas import AgentExecution, SkillExecution
 def render(agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
     """Render the optimization analysis tab."""
 
-    # Add a refresh button
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        if st.button("🔄 Refresh Analysis", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-
     # Load optimization data
     with st.spinner("Analyzing configuration for optimizations..."):
         # Get conversation stats
