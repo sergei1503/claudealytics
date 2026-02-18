@@ -89,4 +89,3 @@ All analysis runs locally - no data leaves your machine.
 MIT - see LICENSE file for details.
 
 ---
-Built as part of the [50 Days of Credits Journey](https://github.com/sergei1503) - Day 17
