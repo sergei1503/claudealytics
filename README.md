@@ -29,10 +29,12 @@ Open http://localhost:8501 in your browser.
 **Sessions** - Session duration patterns and tool call frequency analysis.
 ![Sessions](docs/screenshots/sessions.png)
 
-**Agents & Skills** - Which agents and skills you actually use, how often, and usage trends.
+**Agents & Skills** - Which agents and skills you actually use, how often, and usage trends. Dismiss historic/unused unmapped agents and skills with persistent preferences.
 ![Agents & Skills](docs/screenshots/agents_skills.png)
 
-**Optimization** - Data-driven recommendations for improving your Claude Code setup.
+**Config Health** - Monitor your configuration files with current size metrics (scatter plot, histogram, table), size history tracking (total lines over time, stacked area by type, per-file trends), and in-depth analysis (quality issues grouped by pattern, complexity metrics, LLM-powered reviews, cross-file consistency checks).
+
+**Optimization** - Data-driven recommendations for improving your Claude Code setup. Quality issues are grouped by message pattern for clarity, and failed LLM reviews are collapsed into a single summary.
 ![Optimization](docs/screenshots/optimization.png)
 
 ## CLI Commands
