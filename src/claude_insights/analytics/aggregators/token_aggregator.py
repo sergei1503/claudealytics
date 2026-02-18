@@ -1,10 +1,11 @@
-"""Aggregate token usage data from stats cache."""
+"""Aggregate token usage data from stats cache and JSONL mining."""
 
 from __future__ import annotations
 
 import pandas as pd
 
 from claude_insights.models.schemas import StatsCache
+from claude_insights.analytics.parsers.token_miner import mine_daily_tokens
 
 
 def daily_tokens_by_model(stats: StatsCache) -> pd.DataFrame:
@@ -49,6 +50,18 @@ def model_usage_summary(stats: StatsCache) -> pd.DataFrame:
         return pd.DataFrame()
 
     return pd.DataFrame(rows).sort_values("total_tokens", ascending=False)
+
+
+def daily_tokens_by_model_detailed(use_cache: bool = True) -> pd.DataFrame:
+    """Build a DataFrame of daily token counts with input/output split by model.
+
+    Mines data directly from JSONL files (including agent-*.jsonl) so it
+    captures haiku and other subagent models that stats-cache.json omits.
+
+    Returns:
+        DataFrame with columns: date, model, input_tokens, output_tokens
+    """
+    return mine_daily_tokens(use_cache=use_cache)
 
 
 def daily_activity_df(stats: StatsCache) -> pd.DataFrame:

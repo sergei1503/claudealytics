@@ -17,7 +17,9 @@ from claude_insights.analytics.data_merger import (
     merge_agent_executions,
     merge_skill_executions,
 )
-from claude_insights.dashboard.layouts import overview, token_usage, sessions, agents_skills, costs, optimization
+from claude_insights.scanner.agent_scanner import scan_agents
+from claude_insights.scanner.skill_scanner import scan_skills
+from claude_insights.dashboard.layouts import overview, token_usage, sessions, agents_skills, costs, optimization, config_health
 
 
 def run_dashboard(port: int = 8501):
@@ -42,15 +44,18 @@ def main():
     stats = load_stats()
     agent_execs = load_agent_executions()
     skill_execs = load_skill_executions()
+    agent_defs = load_agent_definitions()
+    skill_defs = load_skill_definitions()
 
     # Navigation tabs
-    tab_overview, tab_tokens, tab_sessions, tab_agents, tab_costs, tab_optimize = st.tabs([
+    tab_overview, tab_tokens, tab_sessions, tab_agents, tab_costs, tab_optimize, tab_config = st.tabs([
         "📊 Overview",
         "🪙 Token Usage",
         "⏱️ Sessions",
         "🤖 Agents & Skills",
         "💰 Costs",
         "🎯 Optimization",
+        "🏥 Config Health",
     ])
 
     with tab_overview:
@@ -63,13 +68,20 @@ def main():
         sessions.render(stats)
 
     with tab_agents:
-        agents_skills.render(agent_execs, skill_execs)
+        agents_skills.render(
+            agent_execs, skill_execs,
+            agent_definitions=agent_defs,
+            skill_definitions=skill_defs,
+        )
 
     with tab_costs:
         costs.render(stats)
 
     with tab_optimize:
         optimization.render(agent_execs, skill_execs)
+
+    with tab_config:
+        config_health.render()
 
 
 @st.cache_data(ttl=300)
@@ -84,8 +96,8 @@ def load_all_executions():
     log_agents = parse_agent_executions()
     log_skills = parse_skill_executions()
 
-    # Get historical data from conversations (goes back to Jan 2025)
-    conv_data = extract_tool_usage_detailed(limit=2000)  # Get up to 2000 historical records
+    # Get historical data from conversations (no cap on records)
+    conv_data = extract_tool_usage_detailed(limit=50000)
 
     # Merge and deduplicate
     merged_agents = merge_agent_executions(log_agents, conv_data.agent_executions)
@@ -106,6 +118,18 @@ def load_skill_executions():
     """Load merged skill executions."""
     _, skills = load_all_executions()
     return skills
+
+
+@st.cache_data(ttl=600)
+def load_agent_definitions():
+    """Load agent definitions from ~/.claude/agents/."""
+    return scan_agents()
+
+
+@st.cache_data(ttl=600)
+def load_skill_definitions():
+    """Load skill definitions from ~/.claude/skills/."""
+    return scan_skills()
 
 
 if __name__ == "__main__":

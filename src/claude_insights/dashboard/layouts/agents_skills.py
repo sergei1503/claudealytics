@@ -2,19 +2,39 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
+from pathlib import Path
 
 import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-from claude_insights.models.schemas import AgentExecution, AgentInfo, SkillExecution, SkillInfo
+from claude_insights.models.schemas import (
+    AgentExecution, AgentInfo, SkillExecution, SkillInfo, UnmappedPreferences,
+)
 from claude_insights.analytics.aggregators.usage_aggregator import (
     agent_usage_counts,
     skill_usage_counts,
     agent_usage_over_time,
     skill_usage_over_time,
 )
+
+_PREFS_PATH = Path.home() / ".cache" / "claude-insights" / "unmapped-preferences.json"
+
+
+def _load_prefs() -> UnmappedPreferences:
+    if _PREFS_PATH.exists():
+        try:
+            return UnmappedPreferences.model_validate(json.loads(_PREFS_PATH.read_text()))
+        except Exception:
+            pass
+    return UnmappedPreferences()
+
+
+def _save_prefs(prefs: UnmappedPreferences) -> None:
+    _PREFS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _PREFS_PATH.write_text(prefs.model_dump_json(indent=2))
 
 
 def render(
@@ -29,13 +49,11 @@ def render(
     agent_counts = agent_usage_counts(agent_execs)
     skill_counts_map = skill_usage_counts(skill_execs)
 
-    TOP_N = 10
-
     # Agent section
     with col_a:
         st.subheader("Agent Usage")
         if agent_counts:
-            top_agents = dict(list(agent_counts.items())[:TOP_N])
+            top_agents = agent_counts
             df = pd.DataFrame(
                 {"agent": list(top_agents.keys()), "executions": list(top_agents.values())}
             )
@@ -57,7 +75,7 @@ def render(
     with col_s:
         st.subheader("Skill Usage")
         if skill_counts_map:
-            top_skills = dict(list(skill_counts_map.items())[:TOP_N])
+            top_skills = skill_counts_map
             df = pd.DataFrame(
                 {"skill": list(top_skills.keys()), "executions": list(top_skills.values())}
             )
@@ -120,20 +138,15 @@ def _render_unmapped_agents(
 ):
     """Show agents found in logs but not defined in ~/.claude/agents/."""
     defined_names = {a.name for a in agent_definitions}
-    # Also include built-in agents that don't need definitions
     builtin_agents = {"Explore", "Plan", "general-purpose", "Bash"}
+    prefs = _load_prefs()
 
-    # Collect used agent names with their project paths
     agent_projects: dict[str, set[str]] = defaultdict(set)
     for ex in agent_execs:
         name = ex.agent_type or ex.agent
         if name:
-            # session_id sometimes encodes the project context
             project = _extract_project(ex.session_id)
-            if project:
-                agent_projects[name].add(project)
-            else:
-                agent_projects[name].add("(unknown)")
+            agent_projects[name].add(project if project else "(unknown)")
 
     unmapped = {
         name: projects
@@ -142,36 +155,52 @@ def _render_unmapped_agents(
     }
 
     st.subheader("Unmapped Agents")
-    if unmapped:
-        st.warning(
-            f"**{len(unmapped)}** agents found in conversation logs "
-            f"but not defined in `~/.claude/agents/`"
-        )
-        rows = []
-        for name, projects in sorted(unmapped.items()):
-            # Find executions for this agent
-            matching_execs = [
-                ex for ex in agent_execs if (ex.agent_type or ex.agent) == name
-            ]
-            count = len(matching_execs)
-
-            # Find last used timestamp
-            last_used = None
-            if matching_execs:
-                timestamps = [ex.timestamp for ex in matching_execs if ex.timestamp]
-                if timestamps:
-                    # timestamps are already strings in ISO format
-                    last_used = max(timestamps)
-
-            rows.append({
-                "Agent": name,
-                "Executions": count,
-                "Last Used": last_used[:10] if last_used else "Unknown",  # Extract YYYY-MM-DD from ISO string
-                "Projects": ", ".join(sorted(projects)[:3]),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    else:
+    if not unmapped:
         st.success("All used agents have corresponding definitions (or are built-in)")
+        return
+
+    active = {n: p for n, p in unmapped.items() if n not in prefs.dismissed_agents}
+    dismissed = {n: p for n, p in unmapped.items() if n in prefs.dismissed_agents}
+
+    st.warning(
+        f"**{len(active)}** unmapped agents"
+        + (f" ({len(dismissed)} dismissed)" if dismissed else "")
+    )
+
+    show_dismissed = st.checkbox("Show dismissed agents", value=False, key="show_dismissed_agents")
+
+    items_to_show = list(active.items())
+    if show_dismissed:
+        items_to_show += list(dismissed.items())
+
+    for name, projects in sorted(items_to_show):
+        is_dismissed = name in prefs.dismissed_agents
+        matching_execs = [
+            ex for ex in agent_execs if (ex.agent_type or ex.agent) == name
+        ]
+        count = len(matching_execs)
+        timestamps = [ex.timestamp for ex in matching_execs if ex.timestamp]
+        last_used = max(timestamps)[:10] if timestamps else "Unknown"
+
+        col_name, col_count, col_date, col_btn = st.columns([3, 1, 1.5, 1])
+        with col_name:
+            label = f"~~{name}~~" if is_dismissed else f"**{name}**"
+            st.markdown(label)
+        with col_count:
+            st.caption(f"{count} runs")
+        with col_date:
+            st.caption(last_used)
+        with col_btn:
+            if is_dismissed:
+                if st.button("Restore", key=f"restore_agent_{name}"):
+                    prefs.dismissed_agents.remove(name)
+                    _save_prefs(prefs)
+                    st.rerun()
+            else:
+                if st.button("Dismiss", key=f"dismiss_agent_{name}"):
+                    prefs.dismissed_agents.append(name)
+                    _save_prefs(prefs)
+                    st.rerun()
 
 
 def _render_unmapped_skills(
@@ -180,16 +209,14 @@ def _render_unmapped_skills(
 ):
     """Show skills found in logs but not defined in ~/.claude/skills/."""
     defined_names = {s.name for s in skill_definitions}
+    prefs = _load_prefs()
 
     skill_projects: dict[str, set[str]] = defaultdict(set)
     for ex in skill_execs:
         name = ex.skill_name or ex.skill
         if name:
             project = _extract_project(ex.session_id)
-            if project:
-                skill_projects[name].add(project)
-            else:
-                skill_projects[name].add("(unknown)")
+            skill_projects[name].add(project if project else "(unknown)")
 
     unmapped = {
         name: projects
@@ -198,36 +225,52 @@ def _render_unmapped_skills(
     }
 
     st.subheader("Unmapped Skills")
-    if unmapped:
-        st.warning(
-            f"**{len(unmapped)}** skills found in conversation logs "
-            f"but not defined in `~/.claude/skills/`"
-        )
-        rows = []
-        for name, projects in sorted(unmapped.items()):
-            # Find executions for this skill
-            matching_execs = [
-                ex for ex in skill_execs if (ex.skill_name or ex.skill) == name
-            ]
-            count = len(matching_execs)
-
-            # Find last used timestamp
-            last_used = None
-            if matching_execs:
-                timestamps = [ex.timestamp for ex in matching_execs if ex.timestamp]
-                if timestamps:
-                    # timestamps are already strings in ISO format
-                    last_used = max(timestamps)
-
-            rows.append({
-                "Skill": name,
-                "Executions": count,
-                "Last Used": last_used[:10] if last_used else "Unknown",  # Extract YYYY-MM-DD from ISO string
-                "Projects": ", ".join(sorted(projects)[:3]),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    else:
+    if not unmapped:
         st.success("All used skills have corresponding definitions")
+        return
+
+    active = {n: p for n, p in unmapped.items() if n not in prefs.dismissed_skills}
+    dismissed = {n: p for n, p in unmapped.items() if n in prefs.dismissed_skills}
+
+    st.warning(
+        f"**{len(active)}** unmapped skills"
+        + (f" ({len(dismissed)} dismissed)" if dismissed else "")
+    )
+
+    show_dismissed = st.checkbox("Show dismissed skills", value=False, key="show_dismissed_skills")
+
+    items_to_show = list(active.items())
+    if show_dismissed:
+        items_to_show += list(dismissed.items())
+
+    for name, projects in sorted(items_to_show):
+        is_dismissed = name in prefs.dismissed_skills
+        matching_execs = [
+            ex for ex in skill_execs if (ex.skill_name or ex.skill) == name
+        ]
+        count = len(matching_execs)
+        timestamps = [ex.timestamp for ex in matching_execs if ex.timestamp]
+        last_used = max(timestamps)[:10] if timestamps else "Unknown"
+
+        col_name, col_count, col_date, col_btn = st.columns([3, 1, 1.5, 1])
+        with col_name:
+            label = f"~~{name}~~" if is_dismissed else f"**{name}**"
+            st.markdown(label)
+        with col_count:
+            st.caption(f"{count} runs")
+        with col_date:
+            st.caption(last_used)
+        with col_btn:
+            if is_dismissed:
+                if st.button("Restore", key=f"restore_skill_{name}"):
+                    prefs.dismissed_skills.remove(name)
+                    _save_prefs(prefs)
+                    st.rerun()
+            else:
+                if st.button("Dismiss", key=f"dismiss_skill_{name}"):
+                    prefs.dismissed_skills.append(name)
+                    _save_prefs(prefs)
+                    st.rerun()
 
 
 def _extract_project(session_id: str) -> str:

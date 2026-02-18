@@ -93,43 +93,35 @@ def render(agent_execs: list[AgentExecution], skill_execs: list[SkillExecution])
     ])
 
     with tab1:
-        st.subheader("Top Used Agents")
-        if stats.agents:
-            # Create DataFrame for top agents
-            top_agents = sorted(stats.agents.items(), key=lambda x: x[1], reverse=True)[:10]
-            df = pd.DataFrame(top_agents, columns=["Agent", "Executions"])
+        st.subheader("Agent-to-Definition Cross-Reference")
 
-            # Create bar chart
-            fig = px.bar(
-                df, x="Executions", y="Agent", orientation="h",
-                color="Executions", color_continuous_scale="Viridis",
-                title="Most Frequently Used Agents"
+        # Show which used agents have definitions and which don't
+        defined_names = {a.name for a in agents}
+        used_names = set(stats.agents.keys()) if stats.agents else set()
+
+        mapped = used_names & defined_names
+        unmapped_used = used_names - defined_names
+        unused_defined = defined_names - used_names
+
+        col_m, col_u, col_d = st.columns(3)
+        with col_m:
+            st.metric("Mapped (used + defined)", len(mapped))
+        with col_u:
+            st.metric("Used but no definition", len(unmapped_used))
+        with col_d:
+            st.metric("Defined but unused", len(unused_defined))
+
+        if unmapped_used:
+            st.warning(
+                f"**{len(unmapped_used)} agents** found in conversations but have no "
+                f"`.md` definition: {', '.join(sorted(unmapped_used))}"
             )
-            fig.update_layout(
-                height=400,
-                showlegend=False,
-                xaxis_title="Number of Executions",
-                yaxis_title="",
-                yaxis={'categoryorder': 'total ascending'}
+
+        if unused_defined:
+            st.info(
+                f"**{len(unused_defined)} agents** defined but never invoked: "
+                f"{', '.join(sorted(unused_defined))}"
             )
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Show insights
-            if top_agents[0][1] > 500:
-                st.info(f"💡 **Optimization Opportunity:** The {top_agents[0][0]} agent has been used {top_agents[0][1]} times. Consider creating a pre-indexed cache for common patterns.")
-
-        st.subheader("Agent Usage Distribution")
-        if stats.agents:
-            # Pie chart of agent usage
-            df_pie = pd.DataFrame(stats.agents.items(), columns=["Agent", "Count"])
-            df_pie = df_pie.nlargest(10, "Count")
-
-            fig = px.pie(
-                df_pie, values="Count", names="Agent",
-                title="Agent Usage Distribution (Top 10)"
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
         st.subheader("🤖 Unused Agents")

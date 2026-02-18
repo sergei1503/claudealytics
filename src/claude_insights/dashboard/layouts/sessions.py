@@ -49,21 +49,37 @@ def render(stats: StatsCache):
         labels={"date": "Date", "sessions": "Sessions"},
         color_discrete_sequence=["#6366f1"],
     )
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0))
+    fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=0))
     st.plotly_chart(fig, use_container_width=True)
 
     # Messages vs Tool Calls scatter
     st.subheader("Messages vs Tool Calls per Day")
+
+    # Calculate days from start for color gradient
+    scatter_data = filtered.copy()
+    scatter_data["days_from_start"] = (scatter_data["date"] - scatter_data["date"].min()).dt.days
+
     fig = px.scatter(
-        filtered,
+        scatter_data,
         x="messages", y="tool_calls",
         size="sessions",
+        color="days_from_start",
         hover_data=["date"],
-        labels={"messages": "Messages", "tool_calls": "Tool Calls", "sessions": "Sessions"},
-        color_discrete_sequence=["#8b5cf6"],
+        labels={"messages": "Messages", "tool_calls": "Tool Calls", "sessions": "Sessions", "days_from_start": "Days from Start"},
+        color_continuous_scale="Viridis",
     )
-    fig.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
+    fig.update_layout(
+        height=350,
+        margin=dict(l=20, r=20, t=80, b=0),
+        coloraxis_colorbar=dict(
+            title=dict(text="Days from Start", font=dict(size=14)),
+            x=1.1,
+            len=0.6,
+            y=0.5,
+        )
+    )
     st.plotly_chart(fig, use_container_width=True)
+    st.caption("Bubble size reflects session count. Color indicates time progression (lighter/brighter = more recent).")
 
     # Tool calls trend
     st.subheader("Daily Tool Calls")
@@ -72,5 +88,5 @@ def render(stats: StatsCache):
         labels={"date": "Date", "tool_calls": "Tool Calls"},
         color_discrete_sequence=["#14b8a6"],
     )
-    fig.update_layout(height=250, margin=dict(l=0, r=0, t=10, b=0))
+    fig.update_layout(height=250, margin=dict(l=20, r=20, t=20, b=0))
     st.plotly_chart(fig, use_container_width=True)
