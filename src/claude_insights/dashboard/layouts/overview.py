@@ -9,18 +9,15 @@ import pandas as pd
 from claude_insights.models.schemas import AgentExecution, SkillExecution, StatsCache
 from claude_insights.analytics.aggregators.token_aggregator import daily_activity_df
 from claude_insights.analytics.aggregators.usage_aggregator import agent_usage_counts, skill_usage_counts
-from claude_insights.analytics.cost_calculator import total_estimated_cost
 
 
 def render(stats: StatsCache, agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
     """Render the overview tab."""
     # KPI cards
-    est_cost = total_estimated_cost(stats)
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Total Sessions", f"{stats.totalSessions:,}")
     col2.metric("Total Messages", f"{stats.totalMessages:,}")
     col3.metric("Agent Invocations", f"{len(agent_execs):,}")
-    col4.metric("Est. Total Cost", f"${est_cost:,.2f}")
 
     st.divider()
 
