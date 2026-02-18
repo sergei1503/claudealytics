@@ -156,3 +156,67 @@ class ScanReport(BaseModel):
     total_agents: int = 0
     total_skills: int = 0
     total_claude_md_files: int = 0
+
+
+# ── Config Health Models ───────────────────────────────────────────
+
+class ConfigFileMetrics(BaseModel):
+    path: str
+    file_type: str  # "global_claude_md", "project_claude_md", "agent", "skill"
+    name: str
+    lines: int
+    bytes: int
+
+
+class ConfigSizeSnapshot(BaseModel):
+    timestamp: str  # ISO format
+    files: list[ConfigFileMetrics] = Field(default_factory=list)
+    total_lines: int = 0
+    total_bytes: int = 0
+
+
+class ConfigSizeHistory(BaseModel):
+    snapshots: list[ConfigSizeSnapshot] = Field(default_factory=list)
+
+
+class ConfigQualityIssue(BaseModel):
+    file_path: str
+    issue_type: str  # "missing_section", "broken_reference", "stale_entry", "missing_frontmatter"
+    severity: str  # "high", "medium", "low"
+    message: str
+    suggestion: str = ""
+
+
+class ConfigComplexityMetrics(BaseModel):
+    file_path: str
+    name: str
+    file_type: str
+    lines: int
+    avg_line_length: float
+    max_line_length: int
+    section_count: int
+    table_count: int
+    code_block_count: int
+    word_count: int
+
+
+class ConfigLLMReview(BaseModel):
+    file_path: str
+    clarity_score: float = 0.0
+    redundancy_issues: list[str] = Field(default_factory=list)
+    improvement_suggestions: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class ConfigAnalysisResult(BaseModel):
+    timestamp: str
+    quality_issues: list[ConfigQualityIssue] = Field(default_factory=list)
+    complexity_metrics: list[ConfigComplexityMetrics] = Field(default_factory=list)
+    llm_reviews: dict[str, ConfigLLMReview] = Field(default_factory=dict)
+    consistency_issues: list[ConfigQualityIssue] = Field(default_factory=list)
+    analysis_duration_seconds: float = 0.0
+
+
+class UnmappedPreferences(BaseModel):
+    dismissed_agents: list[str] = Field(default_factory=list)
+    dismissed_skills: list[str] = Field(default_factory=list)

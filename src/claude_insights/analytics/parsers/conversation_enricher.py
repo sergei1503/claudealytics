@@ -45,14 +45,15 @@ class ConversationEnricher:
         self.stats_cache_path = self.cache_dir / "tool-stats.json"
 
     def _get_conversation_files(self) -> List[Path]:
-        """Get all conversation JSONL files sorted by modification time."""
+        """Get all conversation JSONL files (including agent subdir files) sorted by modification time."""
         if not self.projects_dir.exists():
             return []
 
         files = []
         for project_dir in self.projects_dir.iterdir():
             if project_dir.is_dir():
-                files.extend(project_dir.glob("*.jsonl"))
+                # Recurse to pick up agent-*.jsonl in subdirectories
+                files.extend(project_dir.rglob("*.jsonl"))
 
         return sorted(files, key=lambda f: f.stat().st_mtime)
 
