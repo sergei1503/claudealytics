@@ -409,6 +409,13 @@ def _render_analysis(cached_analysis):
     if cached_analysis.llm_reviews:
         st.subheader("LLM Reviews")
 
+        def _short_path(p: str) -> str:
+            """Shorten absolute path to a readable relative form."""
+            home = str(Path.home())
+            if p.startswith(home):
+                return "~" + p[len(home):]
+            return p
+
         successful = {
             p: r for p, r in cached_analysis.llm_reviews.items()
             if r.clarity_score > 0
@@ -423,7 +430,7 @@ def _render_analysis(cached_analysis):
             successful.items(),
             key=lambda x: x[1].clarity_score,
         ):
-            name = path.split("/")[-1]
+            name = _short_path(path)
             score = review.clarity_score
             icon = "🟢" if score >= 80 else "🟡" if score >= 50 else "🔴"
             with st.expander(f"{icon} {name} — Clarity: {score:.0f}/100"):
@@ -444,5 +451,5 @@ def _render_analysis(cached_analysis):
         if failed:
             with st.expander(f"⚠️ {len(failed)} files failed LLM review"):
                 for path, review in sorted(failed.items()):
-                    name = path.split("/")[-1]
+                    name = _short_path(path)
                     st.caption(f"`{name}` — {review.summary}")

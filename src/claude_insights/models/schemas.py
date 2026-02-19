@@ -214,9 +214,19 @@ class ConfigAnalysisResult(BaseModel):
     complexity_metrics: list[ConfigComplexityMetrics] = Field(default_factory=list)
     llm_reviews: dict[str, ConfigLLMReview] = Field(default_factory=dict)
     consistency_issues: list[ConfigQualityIssue] = Field(default_factory=list)
+    cross_file_observations: list[str] = Field(default_factory=list)
     analysis_duration_seconds: float = 0.0
 
 
 class UnmappedPreferences(BaseModel):
     dismissed_agents: list[str] = Field(default_factory=list)
     dismissed_skills: list[str] = Field(default_factory=list)
+
+
+# ── Tool Version Models ───────────────────────────────────────────
+
+class ToolVersionResult(BaseModel):
+    name: str
+    installed_version: str | None = None
+    latest_version: str | None = None
+    status: str = "unknown"  # "up_to_date", "update_available", "not_installed", "unknown"

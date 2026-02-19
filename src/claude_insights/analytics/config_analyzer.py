@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
 import time
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import frontmatter
@@ -25,6 +27,61 @@ from claude_insights.scanner.skill_scanner import SKILLS_DIR, scan_skills
 
 CACHE_DIR = Path.home() / ".cache" / "claude-insights"
 ANALYSIS_CACHE = CACHE_DIR / "config-analysis.json"
+LOG_FILE = CACHE_DIR / "llm-review.log"
+DEBUG_DIR = CACHE_DIR / "llm-debug"
+BATCH_SIZE = 8
+DEFAULT_MODEL = "claude-sonnet-4-6"
+
+_logger: logging.Logger | None = None
+
+
+def _get_logger() -> logging.Logger:
+    """Lazy-init a rotating file logger for LLM review diagnostics."""
+    global _logger
+    if _logger is not None:
+        return _logger
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger("claude_insights.llm_review")
+    logger.setLevel(logging.DEBUG)
+    if not logger.handlers:
+        handler = RotatingFileHandler(
+            str(LOG_FILE), maxBytes=1_000_000, backupCount=3
+        )
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        )
+        logger.addHandler(handler)
+    _logger = logger
+    return _logger
+
+
+def _clean_debug_dir() -> None:
+    """Remove old debug files before a new run."""
+    if DEBUG_DIR.exists():
+        for f in DEBUG_DIR.iterdir():
+            try:
+                f.unlink()
+            except Exception:
+                pass
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_debug_response(batch_index: int, stdout: str, stderr: str) -> None:
+    """Persist raw LLM output for a batch (capped at 50K chars)."""
+    try:
+        DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = DEBUG_DIR / f"batch_{batch_index}_{ts}.json"
+        payload = json.dumps({
+            "batch_index": batch_index,
+            "timestamp": ts,
+            "stdout": stdout[:50_000],
+            "stderr": stderr[:50_000] if stderr else "",
+        }, indent=2)
+        path.write_text(payload)
+    except Exception:
+        pass
 
 
 # ── Quality Checks ─────────────────────────────────────────────────
@@ -41,7 +98,7 @@ def analyze_quality(files: list[tuple[Path, str]]) -> list[ConfigQualityIssue]:
             try:
                 post = frontmatter.loads(content)
                 meta = post.metadata
-                for field in ("name", "description", "tools"):
+                for field in ("name", "description"):
                     if not meta.get(field):
                         issues.append(ConfigQualityIssue(
                             file_path=path_str,
@@ -175,82 +232,240 @@ def analyze_consistency(files: list[tuple[Path, str]]) -> list[ConfigQualityIssu
             suggestion=issue.suggestion,
         )
         for issue in scan_issues
+        if issue.category != "orphan"
     ]
 
 
 # ── LLM Review ─────────────────────────────────────────────────────
 
-def analyze_with_llm(file_path: Path, content: str) -> ConfigLLMReview:
-    """Run LLM review on a single config file using claude CLI."""
-    import shutil
+def _review_batch(
+    batch_files: list[tuple[Path, str]],
+    batch_index: int,
+    include_cross_file: bool,
+    model: str,
+    logger: logging.Logger,
+) -> tuple[dict[str, ConfigLLMReview], list[str]]:
+    """Review a single batch of files via the claude CLI.
 
-    # Check if claude CLI is available
-    if not shutil.which("claude"):
-        return ConfigLLMReview(
-            file_path=str(file_path),
-            summary="LLM review skipped: 'claude' CLI not found in PATH",
-        )
-
-    prompt = (
-        "Analyze this Claude Code configuration file for quality. "
-        "Return ONLY valid JSON with these fields:\n"
-        '- "clarity_score": number 0-100 (how clear and well-organized)\n'
-        '- "redundancy_issues": list of strings (redundant or duplicated content)\n'
-        '- "improvement_suggestions": list of strings (specific improvements)\n'
-        '- "summary": string (1-2 sentence overall assessment)\n\n'
-        f"File: {file_path.name}\n\n"
-        f"Content:\n{content[:8000]}"  # Limit content to avoid token issues
+    Returns: (reviews dict for this batch, cross_file_observations list)
+    """
+    file_blocks = "\n\n".join(
+        f'<file name="{p.name}" path="{p}">\n{content}\n</file>'
+        for p, content in batch_files
     )
 
+    cross_file_section = ""
+    if include_cross_file:
+        cross_file_section = '  "cross_file_observations": ["observation 1", "observation 2"]\n'
+    else:
+        cross_file_section = '  "cross_file_observations": []\n'
+
+    prompt = (
+        "You are reviewing Claude Code configuration files to identify quality issues.\n"
+        f"This is batch {batch_index + 1}. Analyze ALL the following files. Look for:\n"
+        "- Per-file quality (clarity, redundancy, improvement opportunities)\n"
+        + ("- Cross-file patterns: overlap, contradictions, consolidation opportunities\n" if include_cross_file else "")
+        + "\n"
+        "Return ONLY valid JSON with this exact structure:\n"
+        "{\n"
+        '  "files": {\n'
+        '    "<exact file path as shown>": {\n'
+        '      "clarity_score": <number 0-100>,\n'
+        '      "redundancy_issues": ["..."],\n'
+        '      "improvement_suggestions": ["..."],\n'
+        '      "summary": "1-2 sentence assessment"\n'
+        "    }\n"
+        "  },\n"
+        + cross_file_section
+        + "}\n\n"
+        "Files to analyze:\n\n"
+        f"{file_blocks}"
+    )
+
+    prompt_size = len(prompt)
+    file_names = [p.name for p, _ in batch_files]
+    logger.info(
+        "Batch %d: %d files, prompt_size=%d chars, files=%s",
+        batch_index, len(batch_files), prompt_size, file_names,
+    )
+
+    t0 = time.time()
+
     try:
-        # Strip CLAUDE* env vars to prevent nested-session detection
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
-        # claude CLI reads prompt from stdin when piped
+        cmd = ["claude", "--print", "--allowedTools", "", "--model", model]
+
         result = subprocess.run(
-            ["claude", "--print", "--model", "haiku"],
+            cmd,
             input=prompt,
             capture_output=True,
             text=True,
-            timeout=90,
+            timeout=180,
             env=clean_env,
         )
 
+        elapsed = round(time.time() - t0, 1)
+        response = result.stdout.strip() if result.stdout else ""
+        stderr = result.stderr.strip() if result.stderr else ""
+
+        _save_debug_response(batch_index, response, stderr)
+
+        logger.info(
+            "Batch %d: elapsed=%.1fs, response_size=%d chars, returncode=%d",
+            batch_index, elapsed, len(response), result.returncode,
+        )
+
         if result.returncode != 0:
-            stderr = result.stderr.strip()[:200] if result.stderr else "unknown error"
-            return ConfigLLMReview(
-                file_path=str(file_path),
-                summary=f"LLM review failed (exit {result.returncode}): {stderr}",
-            )
+            detail = (stderr or response or "unknown error")[:300]
+            logger.error("Batch %d failed (exit %d): %s", batch_index, result.returncode, detail)
+            error_reviews = {
+                str(p): ConfigLLMReview(
+                    file_path=str(p),
+                    summary=f"LLM review failed (batch {batch_index}, exit {result.returncode}): {detail}",
+                )
+                for p, _ in batch_files
+            }
+            return error_reviews, []
 
-        response = result.stdout.strip()
-
-        # Try to extract JSON from the response
         json_match = re.search(r"\{[\s\S]*\}", response)
-        if json_match:
-            data = json.loads(json_match.group())
-            return ConfigLLMReview(
-                file_path=str(file_path),
-                clarity_score=float(data.get("clarity_score", 0)),
-                redundancy_issues=data.get("redundancy_issues", []),
-                improvement_suggestions=data.get("improvement_suggestions", []),
-                summary=data.get("summary", ""),
+        if not json_match:
+            logger.warning(
+                "Batch %d: no JSON found in response (first 200 chars: %s)",
+                batch_index, response[:200],
+            )
+            fallback = {
+                str(p): ConfigLLMReview(
+                    file_path=str(p),
+                    summary=response[:300] if response else "LLM review returned no JSON",
+                )
+                for p, _ in batch_files
+            }
+            return fallback, []
+
+        data = json.loads(json_match.group())
+        file_data: dict = data.get("files", {})
+        cross_obs: list[str] = data.get("cross_file_observations", []) if include_cross_file else []
+
+        logger.info(
+            "Batch %d: LLM returned keys=%s", batch_index, list(file_data.keys()),
+        )
+
+        reviews: dict[str, ConfigLLMReview] = {}
+        matched = 0
+        unmatched = 0
+        for path, _ in batch_files:
+            entry = file_data.get(str(path)) or file_data.get(path.name) or {}
+            if entry:
+                matched += 1
+            else:
+                unmatched += 1
+            reviews[str(path)] = ConfigLLMReview(
+                file_path=str(path),
+                clarity_score=float(entry.get("clarity_score", 0)),
+                redundancy_issues=entry.get("redundancy_issues", []),
+                improvement_suggestions=entry.get("improvement_suggestions", []),
+                summary=entry.get("summary", "No summary returned"),
             )
 
-        # Fallback: use raw response as summary
-        return ConfigLLMReview(
-            file_path=str(file_path),
-            summary=response[:500] if response else "LLM review returned no output",
+        logger.info(
+            "Batch %d: matched=%d, unmatched=%d", batch_index, matched, unmatched,
         )
+
+        return reviews, cross_obs
+
     except subprocess.TimeoutExpired:
-        return ConfigLLMReview(
-            file_path=str(file_path),
-            summary="LLM review timed out after 90s",
-        )
+        elapsed = round(time.time() - t0, 1)
+        logger.error("Batch %d: timed out after %.1fs", batch_index, elapsed)
+        timeout_reviews = {
+            str(p): ConfigLLMReview(
+                file_path=str(p),
+                summary=f"LLM review timed out (batch {batch_index}) after 180s",
+            )
+            for p, _ in batch_files
+        }
+        return timeout_reviews, []
     except Exception as e:
-        return ConfigLLMReview(
-            file_path=str(file_path),
-            summary=f"LLM review failed: {type(e).__name__}: {str(e)[:100]}",
+        logger.error("Batch %d: exception %s: %s", batch_index, type(e).__name__, str(e)[:200])
+        err_reviews = {
+            str(p): ConfigLLMReview(
+                file_path=str(p),
+                summary=f"LLM review failed (batch {batch_index}): {type(e).__name__}: {str(e)[:100]}",
+            )
+            for p, _ in batch_files
+        }
+        return err_reviews, []
+
+
+def analyze_all_with_llm(
+    files: list[tuple[Path, str]],
+    progress_callback=None,
+) -> tuple[dict[str, ConfigLLMReview], list[str]]:
+    """Batched LLM review of all config files using claude CLI.
+
+    Files are split into batches of BATCH_SIZE and reviewed sequentially.
+    Full file content is sent (no truncation).
+
+    Returns: (llm_reviews dict, cross_file_observations list)
+    """
+    import shutil
+
+    logger = _get_logger()
+
+    if not shutil.which("claude"):
+        skip_msg = "LLM review skipped: 'claude' CLI not found in PATH"
+        logger.warning(skip_msg)
+        return {str(p): ConfigLLMReview(file_path=str(p), summary=skip_msg) for p, _ in files}, []
+
+    if not files:
+        return {}, []
+
+    model = os.environ.get("CLAUDE_INSIGHTS_MODEL", DEFAULT_MODEL)
+    num_batches = (len(files) + BATCH_SIZE - 1) // BATCH_SIZE
+
+    logger.info(
+        "=== LLM Review started: %d files, batch_size=%d, batches=%d, model=%s ===",
+        len(files), BATCH_SIZE, num_batches, model,
+    )
+
+    _clean_debug_dir()
+
+    all_reviews: dict[str, ConfigLLMReview] = {}
+    all_cross_obs: list[str] = []
+    t_start = time.time()
+
+    for i in range(num_batches):
+        batch_start = i * BATCH_SIZE
+        batch_end = min(batch_start + BATCH_SIZE, len(files))
+        batch_files = files[batch_start:batch_end]
+
+        if progress_callback:
+            progress_callback(
+                i / num_batches,
+                f"Batch {i + 1}/{num_batches}: reviewing {len(batch_files)} files...",
+            )
+
+        reviews, cross_obs = _review_batch(
+            batch_files=batch_files,
+            batch_index=i,
+            include_cross_file=(i == 0),
+            model=model,
+            logger=logger,
         )
+
+        all_reviews.update(reviews)
+        all_cross_obs.extend(cross_obs)
+
+    total_elapsed = round(time.time() - t_start, 1)
+    success_count = sum(1 for v in all_reviews.values() if v.clarity_score > 0)
+    logger.info(
+        "=== LLM Review complete: %d/%d files scored, %.1fs total ===",
+        success_count, len(files), total_elapsed,
+    )
+
+    if progress_callback:
+        progress_callback(1.0, "LLM review complete")
+
+    return all_reviews, all_cross_obs
 
 
 # ── Full Analysis ──────────────────────────────────────────────────
@@ -302,14 +517,14 @@ def run_full_analysis(progress_callback=None) -> ConfigAnalysisResult:
     complexity_metrics = analyze_complexity(files)
     consistency_issues = analyze_consistency(files)
 
-    # LLM reviews (only for files > 20 lines)
-    llm_reviews: dict[str, ConfigLLMReview] = {}
+    # LLM reviews (only for files > 20 lines) — batched calls
     reviewable = [(p, c) for p, c in files if c.count("\n") > 20]
-    for i, (path, content) in enumerate(reviewable):
-        if progress_callback:
-            progress_callback((i + 1) / len(reviewable), f"Reviewing {path.name}...")
-        review = analyze_with_llm(path, content)
-        llm_reviews[str(path)] = review
+    if progress_callback:
+        progress_callback(0.05, f"Running LLM review on {len(reviewable)} files...")
+
+    llm_reviews, cross_file_observations = analyze_all_with_llm(
+        reviewable, progress_callback=progress_callback,
+    )
 
     result = ConfigAnalysisResult(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -317,6 +532,7 @@ def run_full_analysis(progress_callback=None) -> ConfigAnalysisResult:
         complexity_metrics=complexity_metrics,
         llm_reviews=llm_reviews,
         consistency_issues=consistency_issues,
+        cross_file_observations=cross_file_observations,
         analysis_duration_seconds=round(time.time() - start, 1),
     )
 
