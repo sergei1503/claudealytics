@@ -267,6 +267,47 @@ def dashboard(
     )
 
 
+@app.command()
+def tools():
+    """Check version status of external CLI tools."""
+    from claude_insights.scanner.tool_version_scanner import scan_tool_versions
+
+    with console.status("[bold green]Checking tool versions..."):
+        results = scan_tool_versions()
+
+    STATUS_DISPLAY = {
+        "up_to_date": "[green]✓ up to date[/]",
+        "update_available": "[yellow]↑ update available[/]",
+        "not_installed": "[red]✗ not installed[/]",
+        "unknown": "[dim]? unknown[/]",
+    }
+
+    table = Table(title="External Tool Versions")
+    table.add_column("Tool", style="cyan")
+    table.add_column("Installed", justify="right")
+    table.add_column("Latest", justify="right")
+    table.add_column("Status", justify="center")
+
+    for r in results:
+        table.add_row(
+            r.name,
+            r.installed_version or "[dim]—[/]",
+            r.latest_version or "[dim]—[/]",
+            STATUS_DISPLAY.get(r.status, r.status),
+        )
+
+    console.print(table)
+
+    outdated = [r for r in results if r.status == "update_available"]
+    missing = [r for r in results if r.status == "not_installed"]
+    if outdated:
+        console.print(f"\n[yellow]{len(outdated)} tool(s) have updates available[/]")
+    if missing:
+        console.print(f"[red]{len(missing)} tool(s) not installed[/]")
+    if not outdated and not missing:
+        console.print("\n[green]All tools up to date![/]")
+
+
 def _short_model(model: str) -> str:
     if "opus-4-6" in model:
         return "Opus 4.6"

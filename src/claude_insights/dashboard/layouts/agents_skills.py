@@ -11,13 +11,16 @@ import plotly.express as px
 import pandas as pd
 
 from claude_insights.models.schemas import (
-    AgentExecution, AgentInfo, SkillExecution, SkillInfo, UnmappedPreferences,
+    AgentExecution, AgentInfo, SkillExecution, SkillInfo, ToolVersionResult,
+    UnmappedPreferences,
 )
 from claude_insights.analytics.aggregators.usage_aggregator import (
     agent_usage_counts,
     skill_usage_counts,
     agent_usage_over_time,
     skill_usage_over_time,
+    agent_last_used,
+    skill_last_used,
 )
 
 _PREFS_PATH = Path.home() / ".cache" / "claude-insights" / "unmapped-preferences.json"
@@ -156,27 +159,46 @@ def render(
     skill_execs: list[SkillExecution],
     agent_definitions: list[AgentInfo] | None = None,
     skill_definitions: list[SkillInfo] | None = None,
+    tool_versions: list[ToolVersionResult] | None = None,
 ):
-    """Render the agents & skills tab."""
+    """Render the agents & skills tab with sub-tabs."""
+    tab_usage, tab_inventory, tab_unmapped = st.tabs(["📊 Usage", "📦 Inventory", "❓ Unmapped"])
+
+    with tab_usage:
+        _render_usage(agent_execs, skill_execs)
+
+    with tab_inventory:
+        _render_inventory(
+            agent_execs, skill_execs,
+            agent_definitions or [],
+            skill_definitions or [],
+            tool_versions or [],
+        )
+
+    with tab_unmapped:
+        _render_unmapped_agents(agent_execs, agent_definitions or [])
+        _render_unmapped_skills(skill_execs, skill_definitions or [])
+
+
+def _render_usage(agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]) -> None:
+    """Render usage charts sub-tab."""
     col_a, col_s = st.columns(2)
 
     agent_counts = agent_usage_counts(agent_execs)
     skill_counts_map = skill_usage_counts(skill_execs)
 
-    # Agent section
     with col_a:
         st.subheader("Agent Usage")
         if agent_counts:
-            top_agents = agent_counts
             df = pd.DataFrame(
-                {"agent": list(top_agents.keys()), "executions": list(top_agents.values())}
+                {"agent": list(agent_counts.keys()), "executions": list(agent_counts.values())}
             )
             fig = px.bar(
                 df, x="executions", y="agent", orientation="h",
                 color_discrete_sequence=["#8b5cf6"],
             )
             fig.update_layout(
-                height=max(200, len(top_agents) * 30),
+                height=max(200, len(agent_counts) * 30),
                 margin=dict(l=20, r=20, t=20, b=0),
                 yaxis={"categoryorder": "total ascending"},
                 xaxis_title="Executions", yaxis_title="",
@@ -185,20 +207,18 @@ def render(
         else:
             st.info("No agent execution data")
 
-    # Skill section
     with col_s:
         st.subheader("Skill Usage")
         if skill_counts_map:
-            top_skills = skill_counts_map
             df = pd.DataFrame(
-                {"skill": list(top_skills.keys()), "executions": list(top_skills.values())}
+                {"skill": list(skill_counts_map.keys()), "executions": list(skill_counts_map.values())}
             )
             fig = px.bar(
                 df, x="executions", y="skill", orientation="h",
                 color_discrete_sequence=["#ec4899"],
             )
             fig.update_layout(
-                height=max(200, len(top_skills) * 30),
+                height=max(200, len(skill_counts_map) * 30),
                 margin=dict(l=20, r=20, t=20, b=0),
                 yaxis={"categoryorder": "total ascending"},
                 xaxis_title="Executions", yaxis_title="",
@@ -209,11 +229,9 @@ def render(
 
     st.divider()
 
-    # Usage over time
     st.subheader("Agent Usage Over Time")
     agent_time_df = agent_usage_over_time(agent_execs)
     if not agent_time_df.empty:
-        # Show top 10 agents by total count
         top_agents = list(agent_usage_counts(agent_execs).keys())[:10]
         filtered = agent_time_df[agent_time_df["agent"].isin(top_agents)]
         if not filtered.empty:
@@ -240,10 +258,129 @@ def render(
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # Unmapped agents/skills sections
+
+def _render_inventory(
+    agent_execs: list[AgentExecution],
+    skill_execs: list[SkillExecution],
+    agent_definitions: list[AgentInfo],
+    skill_definitions: list[SkillInfo],
+    tool_versions: list[ToolVersionResult],
+) -> None:
+    """Render the Inventory sub-tab."""
+    counts_agents = agent_usage_counts(agent_execs)
+    counts_skills = skill_usage_counts(skill_execs)
+    last_used_agents = agent_last_used(agent_execs)
+    last_used_skills = skill_last_used(skill_execs)
+
+    updates_available = sum(1 for t in tool_versions if t.status == "update_available")
+
+    # KPI row
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total Agents", len(agent_definitions))
+    k2.metric("Total Skills", len(skill_definitions))
+    k3.metric("External Tools", len(tool_versions))
+    k4.metric("Updates Available", updates_available)
+
     st.divider()
-    _render_unmapped_agents(agent_execs, agent_definitions or [])
-    _render_unmapped_skills(skill_execs, skill_definitions or [])
+
+    # Agents table
+    st.subheader("Agents")
+    if agent_definitions:
+        rows = []
+        for agent in agent_definitions:
+            norm = _normalize(agent.name)
+            # Match by normalized name against execution counts
+            runs = next(
+                (v for k, v in counts_agents.items() if _normalize(k) == norm), 0
+            )
+            last = next(
+                (v[:10] for k, v in last_used_agents.items() if _normalize(k) == norm), "—"
+            )
+            rows.append({
+                "Name": agent.name,
+                "Description": agent.description or "—",
+                "Model": agent.model or "—",
+                "Runs": runs,
+                "Last Used": last,
+            })
+        # Also include agents seen in executions but not in definitions
+        defined_norms = {_normalize(a.name) for a in agent_definitions}
+        for exec_name, count in counts_agents.items():
+            if _normalize(exec_name) not in defined_norms:
+                last = last_used_agents.get(exec_name, "")
+                rows.append({
+                    "Name": exec_name,
+                    "Description": "—",
+                    "Model": "—",
+                    "Runs": count,
+                    "Last Used": last[:10] if last else "—",
+                })
+        df_agents = pd.DataFrame(rows).sort_values("Runs", ascending=False)
+        st.dataframe(df_agents, use_container_width=True, hide_index=True)
+    else:
+        st.info("No agent definitions found")
+
+    st.divider()
+
+    # Skills table
+    st.subheader("Skills")
+    if skill_definitions:
+        rows = []
+        for skill in skill_definitions:
+            norm = _normalize(skill.name)
+            runs = next(
+                (v for k, v in counts_skills.items() if _normalize(k) == norm), 0
+            )
+            last = next(
+                (v[:10] for k, v in last_used_skills.items() if _normalize(k) == norm), "—"
+            )
+            rows.append({
+                "Name": skill.name,
+                "Description": skill.description or "—",
+                "Invocable": "✓" if skill.user_invocable else "",
+                "Runs": runs,
+                "Last Used": last,
+            })
+        # Include skills seen in executions but not in definitions
+        defined_norms = {_normalize(s.name) for s in skill_definitions}
+        for exec_name, count in counts_skills.items():
+            if _normalize(exec_name) not in defined_norms:
+                last = last_used_skills.get(exec_name, "")
+                rows.append({
+                    "Name": exec_name,
+                    "Description": "—",
+                    "Invocable": "",
+                    "Runs": count,
+                    "Last Used": last[:10] if last else "—",
+                })
+        df_skills = pd.DataFrame(rows).sort_values("Runs", ascending=False)
+        st.dataframe(df_skills, use_container_width=True, hide_index=True)
+    else:
+        st.info("No skill definitions found")
+
+    st.divider()
+
+    # External tools table
+    st.subheader("External Tools")
+    if tool_versions:
+        _STATUS_EMOJI = {
+            "up_to_date": "🟢",
+            "update_available": "🟡",
+            "not_installed": "🔴",
+            "unknown": "⚪",
+        }
+        rows = [
+            {
+                "Tool": t.name,
+                "Installed": t.installed_version or "—",
+                "Latest": t.latest_version or "—",
+                "Status": f"{_STATUS_EMOJI.get(t.status, '⚪')} {t.status.replace('_', ' ').title()}",
+            }
+            for t in tool_versions
+        ]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No tool version data")
 
 
 def _render_unmapped_agents(

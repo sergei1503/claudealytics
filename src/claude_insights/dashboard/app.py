@@ -21,6 +21,7 @@ from claude_insights.analytics.data_merger import (
 )
 from claude_insights.scanner.agent_scanner import scan_agents
 from claude_insights.scanner.skill_scanner import scan_skills
+from claude_insights.scanner.tool_version_scanner import scan_tool_versions
 from claude_insights.dashboard.layouts import overview, token_usage, sessions, agents_skills, costs, optimization, config_health
 
 
@@ -56,6 +57,7 @@ def main():
     skill_execs = load_skill_executions()
     agent_defs = load_agent_definitions()
     skill_defs = load_skill_definitions()
+    tool_versions = load_tool_versions()
 
     # Navigation tabs
     tab_overview, tab_tokens, tab_sessions, tab_agents, tab_costs, tab_optimize, tab_config = st.tabs([
@@ -82,6 +84,7 @@ def main():
             agent_execs, skill_execs,
             agent_definitions=agent_defs,
             skill_definitions=skill_defs,
+            tool_versions=tool_versions,
         )
 
     with tab_costs:
@@ -152,6 +155,12 @@ def load_agent_definitions():
 def load_skill_definitions():
     """Load skill definitions from ~/.claude/skills/."""
     return scan_skills()
+
+
+@st.cache_data(ttl=600)
+def load_tool_versions():
+    """Load external tool version scan results. Longer TTL due to network calls."""
+    return scan_tool_versions()
 
 
 if __name__ == "__main__":
