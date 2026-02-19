@@ -40,6 +40,12 @@ def render(stats: StatsCache):
     tokens_df = tokens_df.copy()
     tokens_df["model_short"] = tokens_df["model"].apply(_short_model_name)
 
+    # --- Token Efficiency KPIs (before date filter, uses full data) ---
+    activity = daily_activity_df(stats)
+    _render_efficiency_section(tokens_df, activity)
+
+    st.divider()
+
     # Date filter
     col1, col2 = st.columns(2)
     with col1:
@@ -66,7 +72,6 @@ def render(stats: StatsCache):
 
     # 3. Daily Tokens per Session by Model
     st.subheader("Daily Tokens per Session by Model")
-    activity = daily_activity_df(stats)
     if not activity.empty:
         # Merge with session counts to normalize
         daily_sessions = activity[["date", "sessions"]].copy()
@@ -240,7 +245,52 @@ def render(stats: StatsCache):
             st.plotly_chart(fig, use_container_width=True)
 
 
-def _scatter_line_chart(df: pd.DataFrame, y_col: str, y_label: str):
+def _render_efficiency_section(tokens_df: pd.DataFrame, activity: pd.DataFrame):
+    """Render Token Efficiency KPI row and daily ratio chart."""
+    st.subheader("Token Efficiency")
+
+    total_input = tokens_df["input_tokens"].sum()
+    total_output = tokens_df["output_tokens"].sum()
+    overall_ratio = total_output / total_input if total_input > 0 else 0
+
+    # Compute per-message and per-session averages
+    avg_per_message = None
+    avg_per_session = None
+    if not activity.empty:
+        total_messages = activity["messages"].sum()
+        total_sessions = activity["sessions"].sum()
+        total_tokens = total_input + total_output
+        if total_messages > 0:
+            avg_per_message = total_tokens / total_messages
+        if total_sessions > 0:
+            avg_per_session = total_tokens / total_sessions
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Output / Input Ratio", f"{overall_ratio:.3f}")
+    with col2:
+        st.metric(
+            "Avg Tokens / Message",
+            f"{avg_per_message:,.0f}" if avg_per_message else "N/A",
+        )
+    with col3:
+        st.metric(
+            "Avg Tokens / Session",
+            f"{avg_per_session:,.0f}" if avg_per_session else "N/A",
+        )
+
+    # Daily efficiency ratio chart
+    eff = tokens_df.copy()
+    eff["efficiency_ratio"] = eff["output_tokens"] / eff["input_tokens"].replace(0, float("nan"))
+    eff = eff.dropna(subset=["efficiency_ratio"])
+
+    if not eff.empty:
+        _scatter_line_chart(
+            eff, y_col="efficiency_ratio", y_label="Output / Input Ratio", agg_func="mean"
+        )
+
+
+def _scatter_line_chart(df: pd.DataFrame, y_col: str, y_label: str, agg_func: str = "sum"):
     """Create a scatter+line chart with one trace per model, consistent colors."""
     fig = go.Figure()
 
@@ -250,7 +300,7 @@ def _scatter_line_chart(df: pd.DataFrame, y_col: str, y_label: str):
     for model in models:
         model_data = df[df["model_short"] == model].sort_values("date")
         # Aggregate in case there are multiple entries per date per model
-        agg = model_data.groupby("date")[y_col].sum().reset_index()
+        agg = model_data.groupby("date")[y_col].agg(agg_func).reset_index()
 
         fig.add_trace(go.Scatter(
             x=agg["date"],

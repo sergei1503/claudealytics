@@ -223,11 +223,11 @@ class ConversationEnricher:
 
         return stats
 
-    def extract_tool_usage_detailed(self, limit: int = 100) -> ConversationToolData:
+    def extract_tool_usage_detailed(self, limit: int = 50000) -> ConversationToolData:
         """
         Extract detailed tool execution data for debugging/inspection.
 
-        Use sparingly - this loads actual execution objects into memory.
+        Processes all indexed conversation files without artificial caps.
         """
         index = self._build_tool_index()
 
@@ -235,9 +235,6 @@ class ConversationEnricher:
         skill_executions = []
 
         for file_path_str, line_numbers in index.items():
-            if len(agent_executions) + len(skill_executions) >= limit:
-                break
-
             file_path = Path(file_path_str)
             if not file_path.exists():
                 continue
@@ -251,8 +248,8 @@ class ConversationEnricher:
                     if line_no <= len(lines):
                         try:
                             data = json.loads(lines[line_no - 1])
-                            timestamp = data.get("timestamp", "")  # Get timestamp from root
-                            msg = data.get("message", {})  # Get nested message
+                            timestamp = data.get("timestamp", "")
+                            msg = data.get("message", {})
                             content = msg.get("content", [])
 
                             if isinstance(content, list):
@@ -267,7 +264,7 @@ class ConversationEnricher:
                                                 "session_id": session_id,
                                                 "agent_type": input_data.get("subagent_type", "unknown"),
                                                 "prompt": input_data.get("prompt", "")[:200],
-                                                "status": "unknown"  # Can't determine from invocation alone
+                                                "status": "unknown",
                                             })
 
                                         elif tool_name == "Skill":
@@ -276,15 +273,15 @@ class ConversationEnricher:
                                                 "session_id": session_id,
                                                 "skill_name": input_data.get("skill", "unknown"),
                                                 "args": input_data.get("args", ""),
-                                                "status": "unknown"
+                                                "status": "unknown",
                                             })
 
                         except (json.JSONDecodeError, KeyError):
                             continue
 
         return ConversationToolData(
-            agent_executions=agent_executions[:limit//2],
-            skill_executions=skill_executions[:limit//2]
+            agent_executions=agent_executions,
+            skill_executions=skill_executions,
         )
 
     def clear_cache(self):

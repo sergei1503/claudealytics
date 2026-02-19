@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
@@ -13,6 +14,7 @@ from claude_insights.analytics.config_analyzer import (
     load_cached_analysis,
     run_full_analysis,
 )
+from claude_insights.models.schemas import AgentExecution, SkillExecution
 from claude_insights.scanner.config_size_scanner import (
     load_history,
     measure_all_config_files,
@@ -35,7 +37,10 @@ TYPE_LABELS = {
 }
 
 
-def render():
+def render(
+    agent_execs: list[AgentExecution] | None = None,
+    skill_execs: list[SkillExecution] | None = None,
+):
     """Render the Config Health tab."""
     # Auto-record a snapshot (1-hour dedup handled internally)
     record_snapshot()
@@ -74,7 +79,7 @@ def render():
     ])
 
     with tab_sizes:
-        _render_current_sizes(files)
+        _render_current_sizes(files, agent_execs or [], skill_execs or [])
 
     with tab_history:
         _render_size_history()
@@ -83,7 +88,11 @@ def render():
         _render_analysis(cached_analysis)
 
 
-def _render_current_sizes(files):
+def _render_current_sizes(
+    files,
+    agent_execs: list[AgentExecution],
+    skill_execs: list[SkillExecution],
+):
     """Render the Current Sizes sub-tab."""
     if not files:
         st.info("No config files found.")
@@ -92,49 +101,81 @@ def _render_current_sizes(files):
     df = pd.DataFrame([f.model_dump() for f in files])
     df["type_label"] = df["file_type"].map(TYPE_LABELS)
 
-    # Scatter plot: lines vs bytes, colored by type
-    st.subheader("File Sizes (lines vs bytes)")
-    fig_scatter = px.scatter(
-        df,
-        x="lines",
-        y="bytes",
-        color="type_label",
-        hover_name="name",
-        hover_data=["path"],
-        color_discrete_map={v: TYPE_COLORS[k] for k, v in TYPE_LABELS.items()},
-        labels={"lines": "Lines", "bytes": "Bytes", "type_label": "Type"},
-    )
-    fig_scatter.update_layout(height=450)
-    fig_scatter.update_traces(marker=dict(size=10))
-    st.plotly_chart(fig_scatter, use_container_width=True)
+    # Build last-used lookup from execution data
+    last_used_map: dict[str, str] = {}
+    for ex in agent_execs:
+        key = ex.agent_type or ex.agent or ""
+        if key and ex.timestamp:
+            if key not in last_used_map or ex.timestamp > last_used_map[key]:
+                last_used_map[key] = ex.timestamp
+    for ex in skill_execs:
+        key = ex.skill_name or ex.skill or ""
+        if key and ex.timestamp:
+            if key not in last_used_map or ex.timestamp > last_used_map[key]:
+                last_used_map[key] = ex.timestamp
 
-    # Distribution histogram by type (faceted)
-    st.subheader("Line Count Distribution by Type")
-    fig_hist = px.histogram(
-        df,
+    # Horizontal bar chart: line count by file, colored by type
+    st.subheader("Line Count by File")
+    df_sorted = df.sort_values("lines", ascending=True)
+
+    # Create unique labels to prevent Plotly from aggregating duplicate names
+    name_counts: dict[str, int] = {}
+    unique_labels = []
+    for _, row in df_sorted.iterrows():
+        n = row["name"]
+        name_counts[n] = name_counts.get(n, 0) + 1
+        if name_counts[n] > 1:
+            unique_labels.append(f"{n} ({row['file_type']})")
+        else:
+            unique_labels.append(n)
+    df_sorted = df_sorted.copy()
+    df_sorted["label"] = unique_labels
+
+    fig_bar = px.bar(
+        df_sorted,
+        y="label",
         x="lines",
         color="type_label",
-        facet_col="type_label",
-        facet_col_wrap=2,
-        nbins=20,
+        orientation="h",
+        hover_data=["path", "bytes"],
         color_discrete_map={v: TYPE_COLORS[k] for k, v in TYPE_LABELS.items()},
-        labels={"lines": "Lines", "type_label": "Type"},
+        labels={"label": "File", "lines": "Lines", "type_label": "Type"},
     )
-    fig_hist.update_layout(height=450, showlegend=False)
-    fig_hist.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-    st.plotly_chart(fig_hist, use_container_width=True)
+    fig_bar.update_layout(height=max(400, len(df_sorted) * 28), yaxis_title="")
+    st.plotly_chart(fig_bar, use_container_width=True)
 
     # Table with type filter
     st.subheader("All Config Files")
     available_types = sorted(df["type_label"].unique())
     selected_types = st.multiselect("Filter by type:", available_types, default=available_types)
     filtered_df = df[df["type_label"].isin(selected_types)] if selected_types else df
-    display_df = filtered_df[["name", "path", "type_label", "lines", "bytes"]].rename(columns={
+
+    # Add last-used column
+    def _get_last_used(row):
+        ft = row["file_type"]
+        name = row["name"]
+        if ft == "agent":
+            stem = Path(row["path"]).stem
+            ts = last_used_map.get(stem, "")
+            return ts[:10] if ts else "-"
+        elif ft == "skill":
+            # Skill dir name is the skill identifier
+            skill_dir = Path(row["path"]).parent.name
+            ts = last_used_map.get(skill_dir, "")
+            return ts[:10] if ts else "-"
+        else:
+            return "Always active"
+
+    filtered_df = filtered_df.copy()
+    filtered_df["last_used"] = filtered_df.apply(_get_last_used, axis=1)
+
+    display_df = filtered_df[["name", "path", "type_label", "lines", "bytes", "last_used"]].rename(columns={
         "name": "Name",
         "path": "Path",
         "type_label": "Type",
         "lines": "Lines",
         "bytes": "Bytes",
+        "last_used": "Last Used",
     }).sort_values("Lines", ascending=False)
     st.dataframe(
         display_df,
@@ -244,17 +285,23 @@ def _render_per_file_history(history):
         st.plotly_chart(fig, use_container_width=True)
 
 
+@st.fragment
 def _render_analysis(cached_analysis):
     """Render the Analysis sub-tab."""
+    # Use session_state to persist analysis across Streamlit reruns
+    if "config_analysis_result" not in st.session_state:
+        st.session_state.config_analysis_result = cached_analysis
+
     # Run button with last-run info
     col1, col2 = st.columns([1, 3])
     with col1:
         run_clicked = st.button("🔬 Run Config Analysis", use_container_width=True)
     with col2:
-        if cached_analysis:
+        current = st.session_state.config_analysis_result or cached_analysis
+        if current:
             try:
-                ts = datetime.fromisoformat(cached_analysis.timestamp)
-                duration = cached_analysis.analysis_duration_seconds
+                ts = datetime.fromisoformat(current.timestamp)
+                duration = current.analysis_duration_seconds
                 st.caption(f"Last run: {ts.strftime('%Y-%m-%d %H:%M')} ({duration}s)")
             except (ValueError, TypeError):
                 pass
@@ -268,9 +315,15 @@ def _render_analysis(cached_analysis):
             progress_bar.progress(pct, text=text)
 
         with st.spinner("Running full config analysis..."):
-            cached_analysis = run_full_analysis(progress_callback=update_progress)
+            result = run_full_analysis(progress_callback=update_progress)
         progress_bar.empty()
+        st.session_state.config_analysis_result = result
+        cached_analysis = result
         st.success("Analysis complete!")
+    else:
+        # Use session state result if available (survives reruns)
+        if st.session_state.config_analysis_result:
+            cached_analysis = st.session_state.config_analysis_result
 
     if not cached_analysis:
         st.info("Click 'Run Config Analysis' to generate insights about your configuration files.")

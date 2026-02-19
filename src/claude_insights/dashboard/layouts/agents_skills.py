@@ -21,6 +21,120 @@ from claude_insights.analytics.aggregators.usage_aggregator import (
 )
 
 _PREFS_PATH = Path.home() / ".cache" / "claude-insights" / "unmapped-preferences.json"
+_CLAUDE_HOME = Path.home() / ".claude"
+
+
+def _normalize(name: str) -> str:
+    """Normalize agent/skill names for comparison (lowercase, hyphens)."""
+    return name.lower().replace(" ", "-").replace("_", "-")
+
+
+@st.cache_data(ttl=300)
+def _extract_claude_md_references() -> tuple[set[str], set[str]]:
+    """Extract agent/skill names referenced in CLAUDE.md files.
+
+    Scans global ~/.claude/CLAUDE.md and project-specific CLAUDE.md files
+    found under ~/repos/. Returns (agent_names, skill_names) with
+    normalized names. Cached for 5 minutes to avoid redundant filesystem scans.
+    """
+    import re
+
+    agents: set[str] = set()
+    skills: set[str] = set()
+
+    claude_md_paths: list[Path] = []
+
+    # Global CLAUDE.md
+    global_md = _CLAUDE_HOME / "CLAUDE.md"
+    if global_md.exists():
+        claude_md_paths.append(global_md)
+
+    # Project-specific CLAUDE.md files under ~/repos/ (max 2 levels deep)
+    repos_dir = Path.home() / "repos"
+    if repos_dir.exists():
+        for pattern in ("*/.claude/CLAUDE.md", "*/*/.claude/CLAUDE.md"):
+            for md_file in repos_dir.glob(pattern):
+                claude_md_paths.append(md_file)
+
+    for md_path in claude_md_paths:
+        try:
+            content = md_path.read_text()
+        except Exception:
+            continue
+
+        # Strategy 1: Extract from agent/skill definition tables
+        # These have headers like `| subagent_type | Description |` or `| Name | Description |`
+        # under sections containing "Agent" or "Skill"
+        _extract_from_tables(content, agents, skills)
+
+        # Strategy 2: Extract from routing tables with Task()/Skill() patterns
+        _placeholders = {"...", "<name>", "name", "description"}
+        for m in re.finditer(r'Task\(subagent_type="([^"]+)"\)', content):
+            val = m.group(1)
+            if val not in _placeholders:
+                agents.add(_normalize(val))
+        for m in re.finditer(r'Skill\(skill="([^"]+)"\)', content):
+            val = m.group(1)
+            if val not in _placeholders:
+                skills.add(_normalize(val))
+
+    return agents, skills
+
+
+def _extract_from_tables(content: str, agents: set[str], skills: set[str]) -> None:
+    """Extract agent/skill names from markdown definition tables."""
+    import re
+
+    lines = content.split("\n")
+    current_section = ""
+
+    for line in lines:
+        # Track section headers
+        header_match = re.match(r'^#{1,4}\s+(.+)$', line)
+        if header_match:
+            current_section = header_match.group(1).lower()
+            continue
+
+        # Only process table rows (not header/separator rows)
+        if not line.strip().startswith("|"):
+            continue
+        if re.match(r'^\|\s*-', line):
+            continue
+
+        # Match first-column backtick values: | `name` | ... |
+        row_match = re.match(r'^\|\s*`([^`]+)`\s*\|', line)
+        if not row_match:
+            continue
+
+        name = row_match.group(1).strip()
+
+        # Skip values that aren't agent/skill names
+        if not name or "@" in name or "/" in name or name.startswith("~"):
+            continue
+        if name in ("...", "<name>", "name", "description") or len(name) < 2:
+            continue
+        # Skip tool/infra entries (from Stack Profiles, CLI Tools tables etc)
+        if any(kw in current_section for kw in ("stack", "cli tool", "shared")):
+            continue
+
+        # Classify based on section context
+        section = current_section
+        if "agent" in section and "skill" not in section:
+            agents.add(_normalize(name))
+        elif "skill" in section and "agent" not in section:
+            skills.add(_normalize(name))
+        elif "routing" in section:
+            # Routing table: check the row content for Task() vs Skill()
+            if "Task(" in line or "subagent_type" in line:
+                agents.add(_normalize(name))
+            elif "Skill(" in line or "skill=" in line:
+                skills.add(_normalize(name))
+        elif "agent" in section and "skill" in section:
+            # Combined section like "Agents & Skills" — use sub-headers
+            # These tables typically have `subagent_type` or `Name` headers
+            # Add to both; the normalization will handle dedup
+            agents.add(_normalize(name))
+            skills.add(_normalize(name))
 
 
 def _load_prefs() -> UnmappedPreferences:
@@ -137,8 +251,25 @@ def _render_unmapped_agents(
     agent_definitions: list[AgentInfo],
 ):
     """Show agents found in logs but not defined in ~/.claude/agents/."""
-    defined_names = {a.name for a in agent_definitions}
-    builtin_agents = {"Explore", "Plan", "general-purpose", "Bash"}
+    # Build normalized lookup from definitions
+    defined_normalized = {_normalize(a.name) for a in agent_definitions}
+    # Also index by file stem (e.g. "k8s-log-checker" from the .md filename)
+    for a in agent_definitions:
+        stem = Path(a.file_path).stem
+        defined_normalized.add(_normalize(stem))
+
+    # Add agents referenced in CLAUDE.md routing tables
+    claude_md_agents, _ = _extract_claude_md_references()
+    defined_normalized |= claude_md_agents
+
+    builtin_agents_normalized = {
+        _normalize(b) for b in (
+            "Explore", "Plan", "general-purpose", "Bash",
+            "claude-code-guide", "statusline-setup",
+            "code-simplifier", "code-simplifier:code-simplifier",
+            "haiku", "sonnet", "opus",
+        )
+    }
     prefs = _load_prefs()
 
     agent_projects: dict[str, set[str]] = defaultdict(set)
@@ -151,7 +282,8 @@ def _render_unmapped_agents(
     unmapped = {
         name: projects
         for name, projects in agent_projects.items()
-        if name not in defined_names and name not in builtin_agents
+        if _normalize(name) not in defined_normalized
+        and _normalize(name) not in builtin_agents_normalized
     }
 
     st.subheader("Unmapped Agents")
@@ -172,6 +304,15 @@ def _render_unmapped_agents(
     items_to_show = list(active.items())
     if show_dismissed:
         items_to_show += list(dismissed.items())
+
+    # Column headers
+    hcol_name, hcol_count, hcol_date, hcol_btn = st.columns([3, 1, 1.5, 1])
+    with hcol_name:
+        st.caption("**Name**")
+    with hcol_count:
+        st.caption("**Runs**")
+    with hcol_date:
+        st.caption("**Last Used**")
 
     for name, projects in sorted(items_to_show):
         is_dismissed = name in prefs.dismissed_agents
@@ -208,7 +349,18 @@ def _render_unmapped_skills(
     skill_definitions: list[SkillInfo],
 ):
     """Show skills found in logs but not defined in ~/.claude/skills/."""
-    defined_names = {s.name for s in skill_definitions}
+    # Build normalized lookup from definitions
+    defined_normalized = {_normalize(s.name) for s in skill_definitions}
+    # Also index by directory name or file stem
+    for s in skill_definitions:
+        p = Path(s.file_path)
+        defined_normalized.add(_normalize(p.parent.name))
+        defined_normalized.add(_normalize(p.stem))
+
+    # Add skills referenced in CLAUDE.md routing tables
+    _, claude_md_skills = _extract_claude_md_references()
+    defined_normalized |= claude_md_skills
+
     prefs = _load_prefs()
 
     skill_projects: dict[str, set[str]] = defaultdict(set)
@@ -221,7 +373,7 @@ def _render_unmapped_skills(
     unmapped = {
         name: projects
         for name, projects in skill_projects.items()
-        if name not in defined_names
+        if _normalize(name) not in defined_normalized
     }
 
     st.subheader("Unmapped Skills")
@@ -242,6 +394,15 @@ def _render_unmapped_skills(
     items_to_show = list(active.items())
     if show_dismissed:
         items_to_show += list(dismissed.items())
+
+    # Column headers
+    hcol_name, hcol_count, hcol_date, hcol_btn = st.columns([3, 1, 1.5, 1])
+    with hcol_name:
+        st.caption("**Name**")
+    with hcol_count:
+        st.caption("**Runs**")
+    with hcol_date:
+        st.caption("**Last Used**")
 
     for name, projects in sorted(items_to_show):
         is_dismissed = name in prefs.dismissed_skills

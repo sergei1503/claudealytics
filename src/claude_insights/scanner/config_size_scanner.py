@@ -59,14 +59,17 @@ def measure_all_config_files() -> list[ConfigFileMetrics]:
             if m:
                 metrics.append(m)
 
-    # Skill files
+    # Skill files (subdirectories with SKILL.md + standalone .md files)
     if SKILLS_DIR.exists():
-        for skill_dir in sorted(SKILLS_DIR.iterdir()):
-            if not skill_dir.is_dir():
-                continue
-            skill_file = skill_dir / "SKILL.md"
-            if skill_file.exists():
-                m = _measure_file(skill_file, "skill", skill_dir.name)
+        for entry in sorted(SKILLS_DIR.iterdir()):
+            if entry.is_dir():
+                skill_file = entry / "SKILL.md"
+                if skill_file.exists():
+                    m = _measure_file(skill_file, "skill", entry.name)
+                    if m:
+                        metrics.append(m)
+            elif entry.suffix == ".md" and entry.is_file():
+                m = _measure_file(entry, "skill", entry.stem)
                 if m:
                     metrics.append(m)
 
