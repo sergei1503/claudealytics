@@ -51,6 +51,8 @@ def render(stats: StatsCache):
     )
     fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=0))
     st.plotly_chart(fig, use_container_width=True)
+    if stats.lastComputedDate:
+        st.caption(f"Data as of: {stats.lastComputedDate}")
 
     # Messages vs Tool Calls scatter
     st.subheader("Messages vs Tool Calls per Day")

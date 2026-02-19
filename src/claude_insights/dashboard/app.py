@@ -91,7 +91,7 @@ def main():
         optimization.render(agent_execs, skill_execs)
 
     with tab_config:
-        config_health.render()
+        config_health.render(agent_execs=agent_execs, skill_execs=skill_execs)
 
 
 def _clear_data_caches():

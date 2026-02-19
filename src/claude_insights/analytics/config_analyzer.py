@@ -182,6 +182,15 @@ def analyze_consistency(files: list[tuple[Path, str]]) -> list[ConfigQualityIssu
 
 def analyze_with_llm(file_path: Path, content: str) -> ConfigLLMReview:
     """Run LLM review on a single config file using claude CLI."""
+    import shutil
+
+    # Check if claude CLI is available
+    if not shutil.which("claude"):
+        return ConfigLLMReview(
+            file_path=str(file_path),
+            summary="LLM review skipped: 'claude' CLI not found in PATH",
+        )
+
     prompt = (
         "Analyze this Claude Code configuration file for quality. "
         "Return ONLY valid JSON with these fields:\n"
@@ -196,13 +205,23 @@ def analyze_with_llm(file_path: Path, content: str) -> ConfigLLMReview:
     try:
         # Strip CLAUDE* env vars to prevent nested-session detection
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+        # claude CLI reads prompt from stdin when piped
         result = subprocess.run(
-            ["claude", "--print", "-m", "haiku", prompt],
+            ["claude", "--print", "--model", "haiku"],
+            input=prompt,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=90,
             env=clean_env,
         )
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip()[:200] if result.stderr else "unknown error"
+            return ConfigLLMReview(
+                file_path=str(file_path),
+                summary=f"LLM review failed (exit {result.returncode}): {stderr}",
+            )
+
         response = result.stdout.strip()
 
         # Try to extract JSON from the response
@@ -220,12 +239,17 @@ def analyze_with_llm(file_path: Path, content: str) -> ConfigLLMReview:
         # Fallback: use raw response as summary
         return ConfigLLMReview(
             file_path=str(file_path),
-            summary=response[:500] if response else "LLM review failed to return structured output",
+            summary=response[:500] if response else "LLM review returned no output",
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+    except subprocess.TimeoutExpired:
         return ConfigLLMReview(
             file_path=str(file_path),
-            summary=f"LLM review failed: {type(e).__name__}",
+            summary="LLM review timed out after 90s",
+        )
+    except Exception as e:
+        return ConfigLLMReview(
+            file_path=str(file_path),
+            summary=f"LLM review failed: {type(e).__name__}: {str(e)[:100]}",
         )
 
 
@@ -250,15 +274,19 @@ def _collect_all_config_files() -> list[tuple[Path, str]]:
             except Exception:
                 pass
 
-    # Skill files
+    # Skill files (subdirectories with SKILL.md + standalone .md files)
     if SKILLS_DIR.exists():
         for skill_dir in sorted(SKILLS_DIR.iterdir()):
-            if not skill_dir.is_dir():
-                continue
-            skill_file = skill_dir / "SKILL.md"
-            if skill_file.exists():
+            if skill_dir.is_dir():
+                skill_file = skill_dir / "SKILL.md"
+                if skill_file.exists():
+                    try:
+                        files.append((skill_file, skill_file.read_text()))
+                    except Exception:
+                        pass
+            elif skill_dir.suffix == ".md" and skill_dir.is_file():
                 try:
-                    files.append((skill_file, skill_file.read_text()))
+                    files.append((skill_dir, skill_dir.read_text()))
                 except Exception:
                     pass
 

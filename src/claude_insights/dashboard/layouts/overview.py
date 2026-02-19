@@ -40,6 +40,8 @@ def render(stats: StatsCache, agent_execs: list[AgentExecution], skill_execs: li
             yaxis_title="Messages",
         )
         st.plotly_chart(fig, use_container_width=True)
+        if stats.lastComputedDate:
+            st.caption(f"Data as of: {stats.lastComputedDate}")
 
     # Top agents and skills side by side
     col_a, col_s = st.columns(2)
