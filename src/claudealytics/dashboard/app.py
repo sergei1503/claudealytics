@@ -60,8 +60,9 @@ def main():
     tool_versions = load_tool_versions()
 
     # Navigation tabs
-    tab_overview, tab_tokens, tab_cache, tab_sessions, tab_convo, tab_tech, tab_agents, tab_costs, tab_report, tab_config = st.tabs([
+    tab_overview, tab_report, tab_tokens, tab_cache, tab_sessions, tab_convo, tab_tech, tab_agents, tab_costs, tab_config = st.tabs([
         "📊 Overview",
+        "📋 Report",
         "🪙 Token Usage",
         "💾 Cache Analysis",
         "⏱️ Sessions",
@@ -69,12 +70,14 @@ def main():
         "🛠 Tech Stack",
         "🤖 Agents & Skills",
         "💰 Costs",
-        "📋 Report",
         "🏥 Config Health",
     ])
 
     with tab_overview:
         overview.render(stats, agent_execs, skill_execs)
+
+    with tab_report:
+        optimization.render(stats, agent_execs, skill_execs)
 
     with tab_tokens:
         token_usage.render(stats)
@@ -101,9 +104,6 @@ def main():
 
     with tab_costs:
         costs.render(stats)
-
-    with tab_report:
-        optimization.render(stats, agent_execs, skill_execs)
 
     with tab_config:
         config_health.render(agent_execs=agent_execs, skill_execs=skill_execs)

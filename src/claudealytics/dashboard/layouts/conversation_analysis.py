@@ -10,13 +10,13 @@ import numpy as np
 
 from claudealytics.analytics.parsers.content_miner import mine_content
 from claudealytics.analytics.aggregators.intervention_aggregator import (
-    compute_autonomy, compute_intervention_daily, compute_human_chars, compute_human_length_dist,
+    compute_autonomy, compute_intervention_daily, compute_human_chars,
 )
 from claudealytics.analytics.aggregators.behavior_aggregator import (
     compute_thinking_trends, compute_output_profile, compute_decision_trends,
 )
 from claudealytics.analytics.aggregators.loop_aggregator import (
-    compute_tool_sequences, compute_discipline, compute_daily_discipline, compute_tool_type_daily,
+    compute_discipline, compute_daily_discipline, compute_tool_type_daily,
 )
 from claudealytics.analytics.aggregators.flow_aggregator import (
     compute_complexity, compute_sidechain_daily, compute_cwd_switches,
@@ -78,7 +78,6 @@ def _render_interventions(session_stats: pd.DataFrame, daily_stats: pd.DataFrame
     autonomy_df = compute_autonomy(session_stats)
     intervention_daily = compute_intervention_daily(daily_stats)
     human_chars = compute_human_chars(session_stats)
-    length_dist = compute_human_length_dist(human_lengths)
 
     # KPIs
     col1, col2, col3, col4 = st.columns(4)
@@ -157,17 +156,6 @@ def _render_interventions(session_stats: pd.DataFrame, daily_stats: pd.DataFrame
                               yaxis_title="Count", xaxis_title="Date",
                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig, use_container_width=True)
-
-    # Human message length distribution
-    if not length_dist.empty:
-        st.subheader("Human Message Length Distribution", help="Distribution of word counts across human messages, colored by intervention type. Log scale applied due to heavy right skew.")
-        fig = px.histogram(length_dist, x="word_count", nbins=50, color="classification",
-                           color_discrete_map={"correction": "#ef4444", "approval": "#22c55e",
-                                                "guidance": "#6366f1", "new_instruction": "#f59e0b"},
-                           labels={"word_count": "Word Count", "classification": "Type"})
-        fig.update_layout(height=300, margin=dict(l=20, r=20, t=40, b=0))
-        fig.update_layout(xaxis_type="log")
-        st.plotly_chart(fig, use_container_width=True)
 
     # Session autonomy box plot by project
     if not autonomy_df.empty and len(autonomy_df) > 1:
@@ -288,7 +276,6 @@ def _render_behavior(session_stats: pd.DataFrame, daily_stats: pd.DataFrame):
 
 def _render_loops(session_stats: pd.DataFrame, tool_calls: pd.DataFrame,
                   error_results: pd.DataFrame):
-    sequences = compute_tool_sequences(tool_calls)
     discipline = compute_daily_discipline(session_stats)
     tool_daily = compute_tool_type_daily(tool_calls)
 
@@ -316,18 +303,6 @@ def _render_loops(session_stats: pd.DataFrame, tool_calls: pd.DataFrame,
         col4.metric("Error Rate", f"{error_rate}%")
 
     st.divider()
-
-    # Top tool sequence patterns
-    if not sequences.empty:
-        st.subheader("Top Tool Sequence Patterns", help="Consecutive tool-call pairs within a single assistant turn. Single-tool turns excluded.")
-        top = sequences.head(20)
-        fig = px.bar(top, x="count", y="pattern", orientation="h",
-                     color_discrete_sequence=["#6366f1"],
-                     labels={"count": "Occurrences", "pattern": "Sequence"})
-        fig.update_layout(height=max(300, len(top) * 25 + 80),
-                          margin=dict(l=20, r=20, t=20, b=0),
-                          yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig, use_container_width=True)
 
     # Tool usage by type (stacked area)
     if not tool_daily.empty:
