@@ -258,6 +258,7 @@ def dashboard(
     import subprocess
 
     dashboard_path = Path(__file__).parent / "dashboard" / "app.py"
+
     console.print(f"[bold green]🚀 Launching dashboard on port {port}...[/]")
     console.print(f"   Open http://localhost:{port} in your browser\n")
 

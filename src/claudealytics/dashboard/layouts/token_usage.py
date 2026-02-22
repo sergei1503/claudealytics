@@ -29,7 +29,6 @@ _FALLBACK_COLORS = ["#f59e0b", "#ef4444", "#ec4899", "#06b6d4", "#84cc16"]
 
 def render(stats: StatsCache):
     """Render the token usage tab."""
-    # Load JSONL-mined token data (includes haiku from agent files)
     tokens_df = daily_tokens_by_model_detailed(use_cache=True)
 
     if tokens_df.empty:

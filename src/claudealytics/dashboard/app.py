@@ -2,26 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import streamlit as st
 
-from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
-from claudealytics.analytics.parsers.execution_log_parser import (
-    parse_agent_executions,
-    parse_skill_executions,
-)
-from claudealytics.analytics.parsers.conversation_enricher import (
-    mine_tool_usage_stats,
-    extract_tool_usage_detailed,
-)
-from claudealytics.analytics.data_merger import (
-    merge_agent_executions,
-    merge_skill_executions,
-)
-from claudealytics.scanner.agent_scanner import scan_agents
-from claudealytics.scanner.skill_scanner import scan_skills
-from claudealytics.scanner.tool_version_scanner import scan_tool_versions
 from claudealytics.dashboard.layouts import overview, token_usage, sessions, agents_skills, costs, optimization, config_health, cache_analysis, conversation_analysis, tech_stack
 
 
@@ -36,7 +21,7 @@ def run_dashboard(port: int = 8501):
 
 def main():
     st.set_page_config(
-        page_title="Claude Insights",
+        page_title="Claudealytics",
         page_icon="🔍",
         layout="wide",
     )
@@ -123,23 +108,28 @@ def _clear_data_caches():
 
 @st.cache_data(ttl=300)
 def load_stats():
+    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
     return parse_stats_cache()
 
 
 @st.cache_data(ttl=300)
 def load_all_executions():
     """Load and merge execution data from both logs and conversations."""
-    # Get data from execution logs (recent, with outcome_preview)
+    from claudealytics.analytics.parsers.execution_log_parser import (
+        parse_agent_executions,
+        parse_skill_executions,
+    )
+    from claudealytics.analytics.parsers.conversation_enricher import extract_tool_usage_detailed
+    from claudealytics.analytics.data_merger import (
+        merge_agent_executions,
+        merge_skill_executions,
+    )
+
     log_agents = parse_agent_executions()
     log_skills = parse_skill_executions()
-
-    # Get historical data from conversations (no cap on records)
     conv_data = extract_tool_usage_detailed(limit=50000)
-
-    # Merge and deduplicate
     merged_agents = merge_agent_executions(log_agents, conv_data.agent_executions)
     merged_skills = merge_skill_executions(log_skills, conv_data.skill_executions)
-
     return merged_agents, merged_skills
 
 
@@ -160,18 +150,21 @@ def load_skill_executions():
 @st.cache_data(ttl=600)
 def load_agent_definitions():
     """Load agent definitions from ~/.claude/agents/."""
+    from claudealytics.scanner.agent_scanner import scan_agents
     return scan_agents()
 
 
 @st.cache_data(ttl=600)
 def load_skill_definitions():
     """Load skill definitions from ~/.claude/skills/."""
+    from claudealytics.scanner.skill_scanner import scan_skills
     return scan_skills()
 
 
 @st.cache_data(ttl=600)
 def load_tool_versions():
     """Load external tool version scan results. Longer TTL due to network calls."""
+    from claudealytics.scanner.tool_version_scanner import scan_tool_versions
     return scan_tool_versions()
 
 

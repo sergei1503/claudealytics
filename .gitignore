@@ -63,3 +63,6 @@ optimization-*.md
 secrets.json
 credentials.json
 portless.json
+
+# Generated reports
+docs/conversation-data-report.html

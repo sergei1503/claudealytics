@@ -39,8 +39,6 @@ def render(
     """Render the Config Health tab."""
     # Auto-record a snapshot (1-hour dedup handled internally)
     record_snapshot()
-
-    # Current metrics for KPI row
     files = measure_all_config_files()
 
     # KPI row

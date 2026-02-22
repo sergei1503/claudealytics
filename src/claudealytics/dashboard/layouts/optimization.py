@@ -48,7 +48,6 @@ TYPE_LABELS = {
 
 def render(stats: StatsCache | None, agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
     """Render the Report tab with three sub-tabs."""
-
     tab_report, tab_analysis, tab_optimize = st.tabs([
         "📄 Full Report",
         "🔬 Config Analysis",
