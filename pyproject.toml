@@ -1,8 +1,24 @@
 [project]
-name = "claude-insights"
+name = "claudealytics"
 version = "0.1.0"
-description = "Infrastructure scanner and usage analytics dashboard for Claude Code configurations"
+description = "Analytics dashboard for Claude Code power users — mine your conversation history to understand usage patterns, track costs, and optimize your setup."
 requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Sergei Benkovitch", email = "sergei1503@gmail.com" }]
+keywords = ["claude", "claude-code", "analytics", "dashboard", "streamlit", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
+]
 dependencies = [
     "typer>=0.12",
     "rich>=13.0",
@@ -14,14 +30,34 @@ dependencies = [
 ]
 
 [project.scripts]
-claude-insights = "claude_insights.cli:app"
+claudealytics = "claudealytics.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/sergei1503/claudealytics"
+Repository = "https://github.com/sergei1503/claudealytics"
+Issues = "https://github.com/sergei1503/claudealytics/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8.0", "pytest-mock>=3.14"]
+dev = ["ruff>=0.8"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/claude_insights"]
+packages = ["src/claudealytics"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

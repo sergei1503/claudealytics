@@ -50,7 +50,7 @@ optimization-*.md
 
 # Cache
 .cache/
-~/.cache/claude-insights/
+~/.cache/claudealytics/
 
 # Sensitive data
 **/execution-logs/
