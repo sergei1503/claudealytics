@@ -1,6 +1,12 @@
-# Claude Code Insights
+# Claudealytics
+
+[![CI](https://github.com/sergei1503/claudealytics/actions/workflows/ci.yml/badge.svg)](https://github.com/sergei1503/claudealytics/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Analytics dashboard for Claude Code power users. Mine your local conversation history to understand usage patterns, track costs, and find optimization opportunities.
+
+All analysis runs locally — no data leaves your machine.
 
 ## Screenshots
 
@@ -8,47 +14,49 @@ Analytics dashboard for Claude Code power users. Mine your local conversation hi
 |----------|----------|-----------------|
 | ![Overview](docs/screenshots/overview.png) | ![Sessions](docs/screenshots/sessions.png) | ![Agents & Skills](docs/screenshots/agents_skills.png) |
 
+## Install
+
+```bash
+pip install claudealytics
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/sergei1503/claudealytics.git
+cd claudealytics
+uv sync
+```
+
 ## Quick Start
 
 ```bash
-git clone https://github.com/sergei1503/claude_setup_insights.git
-cd claude_setup_insights
-uv sync
-uv run claude-insights dashboard
+claudealytics dashboard
 ```
 
 Open http://localhost:8501 in your browser.
 
-## Dashboard Tabs
-
-**Overview** - KPI cards (sessions, messages, agent invocations) and daily activity chart.
-
-**Token Usage** - Token consumption breakdown by model over time, with input/output/cache split.
-![Token Usage](docs/screenshots/token_usage.png)
-
-**Sessions** - Session duration patterns and tool call frequency analysis.
-![Sessions](docs/screenshots/sessions.png)
-
-**Agents & Skills** - Which agents and skills you actually use, how often, and usage trends. Dismiss historic/unused unmapped agents and skills with persistent preferences.
-![Agents & Skills](docs/screenshots/agents_skills.png)
-
-**Config Health** - Monitor your configuration files with current size metrics (scatter plot, histogram, table), size history tracking (total lines over time, stacked area by type, per-file trends), and in-depth analysis (quality issues grouped by pattern, complexity metrics, LLM-powered reviews, cross-file consistency checks).
-
-**Optimization** - Data-driven recommendations for improving your Claude Code setup. Quality issues are grouped by message pattern for clarity, and failed LLM reviews are collapsed into a single summary.
-![Optimization](docs/screenshots/optimization.png)
-
 ## CLI Commands
 
 ```bash
-claude-insights dashboard          # Launch interactive dashboard
-claude-insights optimize           # Run optimization analysis (outputs markdown report)
-claude-insights scan               # Infrastructure scan (agents, skills, routing)
-claude-insights stats              # Quick terminal summary
+claudealytics dashboard    # Launch interactive dashboard
+claudealytics optimize     # Run optimization analysis (markdown report)
+claudealytics scan         # Infrastructure scan (agents, skills, routing)
+claudealytics stats        # Quick terminal summary
 ```
+
+## Dashboard Tabs
+
+- **Overview** — KPI cards (sessions, messages, agent invocations) and daily activity chart
+- **Token Usage** — Token consumption breakdown by model, input/output/cache split
+- **Sessions** — Session duration patterns and tool call frequency
+- **Agents & Skills** — Usage frequency, trends, and unmapped detection
+- **Config Health** — Size metrics, history tracking, quality issues, LLM-powered reviews
+- **Optimization** — Data-driven recommendations for improving your setup
 
 ## How It Works
 
-The tool reads local Claude Code data - no external API calls required.
+Claudealytics reads local Claude Code data — no external API calls required.
 
 | Source | Location | Purpose |
 |--------|----------|---------|
@@ -62,29 +70,13 @@ The tool reads local Claude Code data - no external API calls required.
 ## Development
 
 ```bash
-uv sync              # Install dependencies
-uv run pytest        # Run tests
-uv run ruff format src/  # Format code
+uv sync --extra dev --extra test
+uv run pytest -v
+uv run ruff check src/ tests/
 ```
 
-## Privacy & Known Issues
-
-All analysis runs locally - no data leaves your machine.
-
-- Stats cache may not cover full history if Claude Code was recently installed
-- Token/cost data is estimated based on public API pricing
-- Some built-in agents may not have configuration files to analyze
-
-## Roadmap
-
-- [ ] Export optimization recommendations to Claude-compatible format
-- [ ] Trend analysis for usage patterns
-- [ ] Team usage analytics
-- [ ] Performance benchmarking between agents
-- [ ] Custom optimization rules
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ## License
 
-MIT - see LICENSE file for details.
-
----
+MIT — see [LICENSE](LICENSE) for details.
