@@ -9,12 +9,12 @@ import pandas as pd
 from claudealytics.models.schemas import AgentExecution, SkillExecution
 
 
-def _normalize(name: str) -> str:
+def normalize_name(name: str) -> str:
     """Normalize a name for grouping: lowercase with hyphens."""
     return name.lower().replace(" ", "-").replace("_", "-")
 
 
-def _build_canonical_map(names: list[str]) -> dict[str, str]:
+def build_canonical_map(names: list[str]) -> dict[str, str]:
     """Map all name variants to a single canonical name.
 
     Prefers the version that appears most often. When tied, prefers
@@ -22,7 +22,7 @@ def _build_canonical_map(names: list[str]) -> dict[str, str]:
     """
     groups: dict[str, Counter] = defaultdict(Counter)
     for name in names:
-        groups[_normalize(name)][name] += 1
+        groups[normalize_name(name)][name] += 1
 
     canonical: dict[str, str] = {}
     for norm_name, variants in groups.items():
@@ -37,21 +37,21 @@ def _build_canonical_map(names: list[str]) -> dict[str, str]:
 def agent_usage_counts(executions: list[AgentExecution]) -> dict[str, int]:
     """Count executions per agent type, merging name variants."""
     names = [e.agent for e in executions]
-    canon = _build_canonical_map(names)
+    canon = build_canonical_map(names)
     return dict(Counter(canon.get(n, n) for n in names).most_common())
 
 
 def skill_usage_counts(executions: list[SkillExecution]) -> dict[str, int]:
     """Count executions per skill, merging name variants."""
     names = [e.skill for e in executions]
-    canon = _build_canonical_map(names)
+    canon = build_canonical_map(names)
     return dict(Counter(canon.get(n, n) for n in names).most_common())
 
 
 def agent_usage_over_time(executions: list[AgentExecution]) -> pd.DataFrame:
     """Build a DataFrame of agent usage by date, merging name variants."""
     names = [e.agent for e in executions]
-    canon = _build_canonical_map(names)
+    canon = build_canonical_map(names)
 
     rows = []
     for e in executions:
@@ -70,7 +70,7 @@ def agent_usage_over_time(executions: list[AgentExecution]) -> pd.DataFrame:
 def skill_usage_over_time(executions: list[SkillExecution]) -> pd.DataFrame:
     """Build a DataFrame of skill usage by date, merging name variants."""
     names = [e.skill for e in executions]
-    canon = _build_canonical_map(names)
+    canon = build_canonical_map(names)
 
     rows = []
     for e in executions:
@@ -89,7 +89,7 @@ def skill_usage_over_time(executions: list[SkillExecution]) -> pd.DataFrame:
 def agent_last_used(executions: list[AgentExecution]) -> dict[str, str]:
     """Get last execution timestamp for each agent."""
     names = [e.agent for e in executions]
-    canon = _build_canonical_map(names)
+    canon = build_canonical_map(names)
     last: dict[str, str] = {}
     for e in executions:
         name = canon.get(e.agent, e.agent)
@@ -101,7 +101,7 @@ def agent_last_used(executions: list[AgentExecution]) -> dict[str, str]:
 def skill_last_used(executions: list[SkillExecution]) -> dict[str, str]:
     """Get last execution timestamp for each skill."""
     names = [e.skill for e in executions]
-    canon = _build_canonical_map(names)
+    canon = build_canonical_map(names)
     last: dict[str, str] = {}
     for e in executions:
         name = canon.get(e.skill, e.skill)

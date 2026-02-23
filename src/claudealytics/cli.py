@@ -249,6 +249,44 @@ def optimize(
     ))
 
 
+@app.command(name="export-json")
+def export_json(
+    output: Path | None = typer.Option(
+        None,
+        "--output", "-o",
+        help="Output file (default: print to stdout)",
+    ),
+    pretty: bool = typer.Option(
+        True,
+        "--pretty/--compact",
+        help="Pretty-print JSON output",
+    ),
+):
+    """Export structured platform data as JSON."""
+    import json
+    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
+    from claudealytics.analytics.parsers.execution_log_parser import (
+        parse_agent_executions,
+        parse_skill_executions,
+    )
+    from claudealytics.analytics.report_generator import export_platform_json
+
+    with console.status("[bold green]Collecting platform data..."):
+        stats_data = parse_stats_cache()
+        agent_execs = parse_agent_executions()
+        skill_execs = parse_skill_executions()
+        data = export_platform_json(stats_data, agent_execs, skill_execs)
+
+    indent = 2 if pretty else None
+    json_str = json.dumps(data, indent=indent, default=str)
+
+    if output:
+        output.write_text(json_str)
+        console.print(f"[bold green]Exported platform data to {output}[/]")
+    else:
+        print(json_str)
+
+
 @app.command()
 def dashboard(
     port: int = typer.Option(8501, "--port", "-p", help="Port to run dashboard on"),

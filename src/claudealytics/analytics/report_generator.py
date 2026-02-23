@@ -14,179 +14,180 @@ from claudealytics.models.schemas import FullReport, StatsCache
 
 CACHE_DIR = Path.home() / ".cache" / "claudealytics"
 REPORT_CACHE = CACHE_DIR / "full-report.json"
+REPORTS_DIR = CACHE_DIR / "reports"
 DEFAULT_MODEL = "claude-opus-4-6"
 
 
-def summarize_platform_data(
+def collect_platform_data(
     stats: StatsCache | None,
     agent_execs: list,
     skill_execs: list,
-) -> str:
-    """Collect and summarize all platform data into a text digest (~2000-4000 words).
+) -> dict:
+    """Collect all platform data into a structured dict with exact numbers.
 
     Pure Python — no LLM calls. Each section handles empty data gracefully.
+    Returns a dict with keys: activity, tokens, cache, content, agents_skills,
+    optimization, config_health.
     """
-    sections: list[str] = []
+    data: dict = {}
 
     # ── 1. Activity Overview (from StatsCache) ──
-    section = ["## Activity Overview"]
+    activity: dict = {}
     if stats:
-        section.append(f"- Total sessions: {stats.totalSessions:,}")
-        section.append(f"- Total messages: {stats.totalMessages:,}")
-        if stats.firstSessionDate:
-            section.append(f"- First session: {stats.firstSessionDate}")
-        if stats.lastComputedDate:
-            section.append(f"- Data through: {stats.lastComputedDate}")
+        activity["total_sessions"] = stats.totalSessions
+        activity["total_messages"] = stats.totalMessages
+        activity["first_session_date"] = stats.firstSessionDate or ""
+        activity["last_computed_date"] = stats.lastComputedDate or ""
         if stats.longestSession and stats.longestSession.duration > 0:
-            dur_min = stats.longestSession.duration // 60
-            section.append(f"- Longest session: {dur_min} min ({stats.longestSession.messageCount} messages)")
-
-        # Peak hours
+            activity["longest_session_minutes"] = stats.longestSession.duration // 60
+            activity["longest_session_messages"] = stats.longestSession.messageCount
         if stats.hourCounts:
             top_hours = sorted(stats.hourCounts.items(), key=lambda x: x[1], reverse=True)[:5]
-            peaks = ", ".join(f"{h}:00 ({c} msgs)" for h, c in top_hours)
-            section.append(f"- Peak hours: {peaks}")
-
-        # Model usage summary
+            activity["peak_hours"] = {h: c for h, c in top_hours}
         if stats.modelUsage:
-            section.append("\n### Model Usage")
-            for model, usage in sorted(stats.modelUsage.items(), key=lambda x: x[1].costUSD, reverse=True):
+            model_data = {}
+            total_cost = 0.0
+            for model, usage in stats.modelUsage.items():
                 total_tokens = usage.inputTokens + usage.outputTokens
-                section.append(
-                    f"- **{model}**: {total_tokens:,} tokens, ${usage.costUSD:.2f} cost, "
-                    f"cache read: {usage.cacheReadInputTokens:,}"
-                )
-
-        # Recent daily activity (last 14 days)
-        if stats.dailyActivity:
-            recent = stats.dailyActivity[-14:]
-            section.append("\n### Recent Daily Activity (last 14 days)")
-            for day in recent:
-                section.append(f"- {day.date}: {day.messageCount} msgs, {day.sessionCount} sessions")
-    else:
-        section.append("No stats data available.")
-    sections.append("\n".join(section))
+                model_data[model] = {
+                    "total_tokens": total_tokens,
+                    "input_tokens": usage.inputTokens,
+                    "output_tokens": usage.outputTokens,
+                    "cache_read_tokens": usage.cacheReadInputTokens,
+                    "cost_usd": round(usage.costUSD, 2),
+                }
+                total_cost += usage.costUSD
+            activity["model_usage"] = model_data
+            activity["total_cost_usd"] = round(total_cost, 2)
+            # Top model by cost
+            if model_data:
+                top_model = max(model_data.items(), key=lambda x: x[1]["cost_usd"])
+                activity["top_model_by_cost"] = top_model[0]
+    data["activity"] = activity
 
     # ── 2. Token Trends (from TokenMiner) ──
-    section = ["## Token Trends"]
+    tokens: dict = {}
     try:
         from claudealytics.analytics.parsers.token_miner import mine_daily_tokens
         token_df = mine_daily_tokens(use_cache=True)
         if not token_df.empty and "date" in token_df.columns:
-            total_by_model = {}
             model_cols = [c for c in token_df.columns if c != "date"]
+            by_model = {}
             for col in model_cols:
-                total_by_model[col] = int(token_df[col].sum())
-            section.append("### Total Tokens by Model")
-            for model, total in sorted(total_by_model.items(), key=lambda x: x[1], reverse=True)[:10]:
-                section.append(f"- {model}: {total:,}")
+                by_model[col] = int(token_df[col].sum())
+            tokens["by_model"] = by_model
+            tokens["total"] = sum(by_model.values())
 
-            # Recent trend
             recent = token_df.tail(7)
             daily_totals = recent[model_cols].sum(axis=1)
-            avg_daily = int(daily_totals.mean())
-            section.append(f"\n- Average daily tokens (last 7 days): {avg_daily:,}")
-        else:
-            section.append("No token data available.")
+            tokens["avg_daily_7d"] = int(daily_totals.mean())
     except Exception:
-        section.append("Token data could not be loaded.")
-    sections.append("\n".join(section))
+        pass
+    data["tokens"] = tokens
 
     # ── 3. Cache Performance ──
-    section = ["## Cache Performance"]
+    cache: dict = {}
     try:
         from claudealytics.analytics.parsers.token_miner import mine_session_cache
-        from claudealytics.analytics.cache_analyzer import compute_daily_cache_metrics, project_cache_summary
+        from claudealytics.analytics.cache_analyzer import project_cache_summary
         session_df = mine_session_cache(use_cache=True)
         if not session_df.empty:
             total_input = int(session_df["input_tokens"].sum()) if "input_tokens" in session_df.columns else 0
             total_cache = int(session_df["cache_read_tokens"].sum()) if "cache_read_tokens" in session_df.columns else 0
-            hit_rate = (total_cache / max(total_input + total_cache, 1)) * 100
-            section.append(f"- Overall cache hit rate: {hit_rate:.1f}%")
-            section.append(f"- Total cache read tokens: {total_cache:,}")
+            cache["total_input_tokens"] = total_input
+            cache["total_cache_read"] = total_cache
+            cache["hit_rate"] = round((total_cache / max(total_input + total_cache, 1)) * 100, 1)
 
-            # Per-project summary (top 10)
             try:
                 proj_df = project_cache_summary(session_df)
                 if not proj_df.empty:
-                    section.append("\n### Top Projects by Cache Usage")
+                    top_projects = {}
                     for _, row in proj_df.head(10).iterrows():
-                        section.append(f"- {row.get('project', 'unknown')}: hit rate {row.get('cache_hit_rate', 0):.0f}%")
+                        top_projects[row.get("project", "unknown")] = round(row.get("cache_hit_rate", 0), 1)
+                    cache["top_projects"] = top_projects
             except Exception:
                 pass
-        else:
-            section.append("No cache session data available.")
     except Exception:
-        section.append("Cache data could not be loaded.")
-    sections.append("\n".join(section))
+        pass
+    data["cache"] = cache
 
     # ── 4. Session & Content Stats ──
-    section = ["## Session & Content Statistics"]
+    content_data: dict = {}
     try:
         from claudealytics.analytics.parsers.content_miner import mine_content
         content = mine_content(use_cache=True)
         if content:
-            # Session stats
             if "session_stats" in content and not content["session_stats"].empty:
                 ss = content["session_stats"]
-                section.append(f"- Sessions analyzed: {len(ss)}")
+                content_data["sessions_analyzed"] = len(ss)
                 if "message_count" in ss.columns:
-                    section.append(f"- Average messages per session: {ss['message_count'].mean():.1f}")
+                    content_data["avg_messages_per_session"] = round(ss["message_count"].mean(), 1)
                 if "tool_call_count" in ss.columns:
-                    section.append(f"- Average tool calls per session: {ss['tool_call_count'].mean():.1f}")
+                    content_data["avg_tool_calls_per_session"] = round(ss["tool_call_count"].mean(), 1)
 
-            # Errors
             if "error_results" in content and not content["error_results"].empty:
                 err_df = content["error_results"]
-                section.append(f"\n### Errors: {len(err_df)} total error events")
+                content_data["total_errors"] = len(err_df)
                 if "error_type" in err_df.columns:
-                    top_errors = err_df["error_type"].value_counts().head(5)
-                    for err_type, count in top_errors.items():
-                        section.append(f"- {err_type}: {count}")
+                    content_data["errors_by_type"] = err_df["error_type"].value_counts().head(5).to_dict()
 
-            # Tool calls
             if "tool_calls" in content and not content["tool_calls"].empty:
                 tc = content["tool_calls"]
-                section.append(f"\n### Tool Calls: {len(tc)} total")
+                content_data["total_tool_calls"] = len(tc)
                 if "tool_name" in tc.columns:
-                    top_tools = tc["tool_name"].value_counts().head(10)
-                    for tool, count in top_tools.items():
-                        section.append(f"- {tool}: {count}")
-        else:
-            section.append("No content data available.")
+                    content_data["top_tools"] = tc["tool_name"].value_counts().head(10).to_dict()
+
+            # Additional metrics for health score
+            if "session_stats" in content and not content["session_stats"].empty:
+                ss = content["session_stats"]
+                for col in ("writes_total_count", "writes_with_prior_read_count",
+                            "intervention_correction", "intervention_approval",
+                            "intervention_guidance", "intervention_new_instruction"):
+                    if col in ss.columns:
+                        content_data[col] = int(ss[col].sum())
+                if "avg_autonomy_run_length" in ss.columns:
+                    content_data["avg_autonomy_run_length"] = round(float(ss["avg_autonomy_run_length"].mean()), 2)
     except Exception:
-        section.append("Content data could not be loaded.")
-    sections.append("\n".join(section))
+        pass
+    data["content"] = content_data
 
     # ── 5. Agent & Skill Usage ──
-    section = ["## Agent & Skill Ecosystem"]
+    agents_skills: dict = {}
     try:
         from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
+        from claudealytics.analytics.aggregators.usage_aggregator import build_canonical_map
         tool_stats = mine_tool_usage_stats(use_cache=True)
 
         if tool_stats.agents:
-            section.append(f"### Agents ({len(tool_stats.agents)} unique, {sum(tool_stats.agents.values())} total uses)")
-            for agent, count in sorted(tool_stats.agents.items(), key=lambda x: x[1], reverse=True)[:15]:
-                section.append(f"- {agent}: {count}")
-        else:
-            section.append("No agent usage data.")
+            # Merge name variants (e.g. "k8s-log-checker" + "K8s Log Checker" → single entry)
+            canon = build_canonical_map(list(tool_stats.agents.keys()))
+            merged_agents: dict[str, int] = {}
+            for name, count in tool_stats.agents.items():
+                canonical = canon.get(name, name)
+                merged_agents[canonical] = merged_agents.get(canonical, 0) + count
+            agents_skills["agents"] = dict(sorted(merged_agents.items(), key=lambda x: x[1], reverse=True))
+            agents_skills["unique_agents"] = len(merged_agents)
+            agents_skills["total_agent_uses"] = sum(merged_agents.values())
 
         if tool_stats.skills:
-            section.append(f"\n### Skills ({len(tool_stats.skills)} unique, {sum(tool_stats.skills.values())} total uses)")
-            for skill, count in sorted(tool_stats.skills.items(), key=lambda x: x[1], reverse=True)[:15]:
-                section.append(f"- {skill}: {count}")
-        else:
-            section.append("No skill usage data.")
+            canon = build_canonical_map(list(tool_stats.skills.keys()))
+            merged_skills: dict[str, int] = {}
+            for name, count in tool_stats.skills.items():
+                canonical = canon.get(name, name)
+                merged_skills[canonical] = merged_skills.get(canonical, 0) + count
+            agents_skills["skills"] = dict(sorted(merged_skills.items(), key=lambda x: x[1], reverse=True))
+            agents_skills["unique_skills"] = len(merged_skills)
+            agents_skills["total_skill_uses"] = sum(merged_skills.values())
 
-        section.append(f"\n- Total conversations scanned: {tool_stats.total_conversations}")
+        agents_skills["total_conversations"] = tool_stats.total_conversations
         if tool_stats.date_range[0]:
-            section.append(f"- Date range: {tool_stats.date_range[0]} to {tool_stats.date_range[1]}")
+            agents_skills["date_range"] = list(tool_stats.date_range)
     except Exception:
-        section.append("Tool usage data could not be loaded.")
-    sections.append("\n".join(section))
+        pass
+    data["agents_skills"] = agents_skills
 
     # ── 6. Optimization Issues ──
-    section = ["## Optimization Analysis"]
+    optimization: dict = {}
     try:
         from claudealytics.scanner.agent_scanner import scan_agents
         from claudealytics.scanner.skill_scanner import scan_skills
@@ -205,25 +206,18 @@ def summarize_platform_data(
         duplicates = analyze_duplicate_guidance(claude_md_files)
         efficiency = analyze_agent_efficiency(agent_execs)
 
-        section.append(f"- Unused agents: {len(unused_agents)}")
-        if unused_agents:
-            for issue in unused_agents[:10]:
-                section.append(f"  - {issue.title}")
-        section.append(f"- Unused skills: {len(unused_skills)}")
-        if unused_skills:
-            for issue in unused_skills[:10]:
-                section.append(f"  - {issue.title}")
-        section.append(f"- Duplicate guidance issues: {len(duplicates)}")
-        section.append(f"- Efficiency issues: {len(efficiency)}")
-        if efficiency:
-            for issue in efficiency[:5]:
-                section.append(f"  - {issue.title}: {issue.impact}")
+        optimization["unused_agents"] = len(unused_agents)
+        optimization["unused_agents_list"] = [issue.title for issue in unused_agents[:10]]
+        optimization["unused_skills"] = len(unused_skills)
+        optimization["unused_skills_list"] = [issue.title for issue in unused_skills[:10]]
+        optimization["duplicate_guidance_issues"] = len(duplicates)
+        optimization["efficiency_issues"] = len(efficiency)
     except Exception:
-        section.append("Optimization data could not be loaded.")
-    sections.append("\n".join(section))
+        pass
+    data["optimization"] = optimization
 
     # ── 7. Config Health (cached analysis if available) ──
-    section = ["## Configuration Health"]
+    config_health: dict = {}
     try:
         from claudealytics.analytics.config_analyzer import load_cached_analysis
         analysis = load_cached_analysis()
@@ -233,22 +227,227 @@ def summarize_platform_data(
             medium = sum(1 for i in all_issues if i.severity == "medium")
             low = sum(1 for i in all_issues if i.severity == "low")
             health = max(0, 100 - high * 15 - medium * 5 - low * 1)
-            section.append(f"- Health score: {health}/100")
-            section.append(f"- Issues: {high} high, {medium} medium, {low} low")
-            section.append(f"- Last analyzed: {analysis.timestamp}")
+            config_health["health_score"] = health
+            config_health["issues_high"] = high
+            config_health["issues_medium"] = medium
+            config_health["issues_low"] = low
+            config_health["last_analyzed"] = analysis.timestamp
 
             if analysis.llm_reviews:
                 scores = [r.clarity_score for r in analysis.llm_reviews.values() if r.clarity_score > 0]
                 if scores:
-                    section.append(f"- Average clarity score: {sum(scores)/len(scores):.0f}/100")
-                    section.append(f"- Files reviewed: {len(scores)}")
-        else:
-            section.append("No config analysis available (run Config Analysis to populate).")
+                    config_health["avg_clarity_score"] = round(sum(scores) / len(scores))
+                    config_health["files_reviewed"] = len(scores)
     except Exception:
-        section.append("Config health data could not be loaded.")
+        pass
+    data["config_health"] = config_health
+
+    return data
+
+
+def summarize_platform_data(
+    stats: StatsCache | None,
+    agent_execs: list,
+    skill_execs: list,
+) -> str:
+    """Collect and summarize all platform data into a text digest (~2000-4000 words).
+
+    Pure Python — no LLM calls. Each section handles empty data gracefully.
+    Delegates to collect_platform_data() for numbers, then formats as text.
+    """
+    data = collect_platform_data(stats, agent_execs, skill_execs)
+    sections: list[str] = []
+
+    # ── 1. Activity Overview ──
+    section = ["## Activity Overview"]
+    activity = data.get("activity", {})
+    if activity:
+        if "total_sessions" in activity:
+            section.append(f"- Total sessions: {activity['total_sessions']:,}")
+        if "total_messages" in activity:
+            section.append(f"- Total messages: {activity['total_messages']:,}")
+        if activity.get("first_session_date"):
+            section.append(f"- First session: {activity['first_session_date']}")
+        if activity.get("last_computed_date"):
+            section.append(f"- Data through: {activity['last_computed_date']}")
+        if "longest_session_minutes" in activity:
+            section.append(
+                f"- Longest session: {activity['longest_session_minutes']} min "
+                f"({activity.get('longest_session_messages', 0)} messages)"
+            )
+        if "peak_hours" in activity:
+            peaks = ", ".join(f"{h}:00 ({c} msgs)" for h, c in activity["peak_hours"].items())
+            section.append(f"- Peak hours: {peaks}")
+        if "model_usage" in activity:
+            section.append("\n### Model Usage")
+            for model, usage in sorted(activity["model_usage"].items(), key=lambda x: x[1]["cost_usd"], reverse=True):
+                section.append(
+                    f"- **{model}**: {usage['total_tokens']:,} tokens, ${usage['cost_usd']:.2f} cost, "
+                    f"cache read: {usage['cache_read_tokens']:,}"
+                )
+        if "total_cost_usd" in activity:
+            section.append(f"\n- **Total cost: ${activity['total_cost_usd']:.2f}**")
+    else:
+        section.append("No stats data available.")
+    sections.append("\n".join(section))
+
+    # ── 2. Token Trends ──
+    section = ["## Token Trends"]
+    tokens = data.get("tokens", {})
+    if tokens.get("by_model"):
+        section.append("### Total Tokens by Model")
+        for model, total in sorted(tokens["by_model"].items(), key=lambda x: x[1], reverse=True)[:10]:
+            section.append(f"- {model}: {total:,}")
+        if "avg_daily_7d" in tokens:
+            section.append(f"\n- Average daily tokens (last 7 days): {tokens['avg_daily_7d']:,}")
+    else:
+        section.append("No token data available.")
+    sections.append("\n".join(section))
+
+    # ── 3. Cache Performance ──
+    section = ["## Cache Performance"]
+    cache = data.get("cache", {})
+    if "hit_rate" in cache:
+        section.append(f"- Overall cache hit rate: {cache['hit_rate']:.1f}%")
+        section.append(f"- Total cache read tokens: {cache.get('total_cache_read', 0):,}")
+        if "top_projects" in cache:
+            section.append("\n### Top Projects by Cache Usage")
+            for project, rate in cache["top_projects"].items():
+                section.append(f"- {project}: hit rate {rate:.0f}%")
+    else:
+        section.append("No cache data available.")
+    sections.append("\n".join(section))
+
+    # ── 4. Session & Content Stats ──
+    section = ["## Session & Content Statistics"]
+    content = data.get("content", {})
+    if content:
+        if "sessions_analyzed" in content:
+            section.append(f"- Sessions analyzed: {content['sessions_analyzed']}")
+        if "avg_messages_per_session" in content:
+            section.append(f"- Average messages per session: {content['avg_messages_per_session']:.1f}")
+        if "avg_tool_calls_per_session" in content:
+            section.append(f"- Average tool calls per session: {content['avg_tool_calls_per_session']:.1f}")
+        if "total_errors" in content:
+            section.append(f"\n### Errors: {content['total_errors']} total error events")
+            for err_type, count in content.get("errors_by_type", {}).items():
+                section.append(f"- {err_type}: {count}")
+        if "total_tool_calls" in content:
+            section.append(f"\n### Tool Calls: {content['total_tool_calls']} total")
+            for tool, count in content.get("top_tools", {}).items():
+                section.append(f"- {tool}: {count}")
+    else:
+        section.append("No content data available.")
+    sections.append("\n".join(section))
+
+    # ── 5. Agent & Skill Usage ──
+    section = ["## Agent & Skill Ecosystem"]
+    as_data = data.get("agents_skills", {})
+    if as_data.get("agents"):
+        section.append(
+            f"### Agents ({as_data.get('unique_agents', 0)} unique, "
+            f"{as_data.get('total_agent_uses', 0)} total uses)"
+        )
+        for agent, count in list(as_data["agents"].items())[:15]:
+            section.append(f"- {agent}: {count}")
+    else:
+        section.append("No agent usage data.")
+    if as_data.get("skills"):
+        section.append(
+            f"\n### Skills ({as_data.get('unique_skills', 0)} unique, "
+            f"{as_data.get('total_skill_uses', 0)} total uses)"
+        )
+        for skill, count in list(as_data["skills"].items())[:15]:
+            section.append(f"- {skill}: {count}")
+    else:
+        section.append("No skill usage data.")
+    if "total_conversations" in as_data:
+        section.append(f"\n- Total conversations scanned: {as_data['total_conversations']}")
+    if as_data.get("date_range"):
+        section.append(f"- Date range: {as_data['date_range'][0]} to {as_data['date_range'][1]}")
+    sections.append("\n".join(section))
+
+    # ── 6. Optimization Issues ──
+    section = ["## Optimization Analysis"]
+    opt = data.get("optimization", {})
+    if opt:
+        section.append(f"- Unused agents: {opt.get('unused_agents', 0)}")
+        for title in opt.get("unused_agents_list", []):
+            section.append(f"  - {title}")
+        section.append(f"- Unused skills: {opt.get('unused_skills', 0)}")
+        for title in opt.get("unused_skills_list", []):
+            section.append(f"  - {title}")
+        section.append(f"- Duplicate guidance issues: {opt.get('duplicate_guidance_issues', 0)}")
+        section.append(f"- Efficiency issues: {opt.get('efficiency_issues', 0)}")
+    else:
+        section.append("Optimization data could not be loaded.")
+    sections.append("\n".join(section))
+
+    # ── 7. Config Health ──
+    section = ["## Configuration Health"]
+    ch = data.get("config_health", {})
+    if ch:
+        section.append(f"- Health score: {ch.get('health_score', 0)}/100")
+        section.append(
+            f"- Issues: {ch.get('issues_high', 0)} high, "
+            f"{ch.get('issues_medium', 0)} medium, {ch.get('issues_low', 0)} low"
+        )
+        if "last_analyzed" in ch:
+            section.append(f"- Last analyzed: {ch['last_analyzed']}")
+        if "avg_clarity_score" in ch:
+            section.append(f"- Average clarity score: {ch['avg_clarity_score']}/100")
+            section.append(f"- Files reviewed: {ch.get('files_reviewed', 0)}")
+    else:
+        section.append("No config analysis available (run Config Analysis to populate).")
+    sections.append("\n".join(section))
+
+    # ── 8. Composite Health Score ──
+    section = ["## Composite Platform Health Score"]
+    try:
+        from claudealytics.analytics.aggregators.health_score_aggregator import compute_health_score
+        health = compute_health_score(data)
+        section.append(f"- **Overall: {health.overall_score}/100** ({health.active_count}/{health.total_count} metrics)")
+        for sub in health.sub_scores:
+            score_str = f"{sub.score}/100" if sub.score is not None else "N/A"
+            section.append(f"- {sub.label}: {score_str} — {sub.explanation}")
+    except Exception:
+        section.append("Could not compute health score.")
     sections.append("\n".join(section))
 
     return "\n\n".join(sections)
+
+
+def export_platform_json(
+    stats: StatsCache | None,
+    agent_execs: list,
+    skill_execs: list,
+) -> dict:
+    """Export structured platform data as a JSON-serializable dict.
+
+    Convenience wrapper around collect_platform_data() for CLI and API use.
+    """
+    return collect_platform_data(stats, agent_execs, skill_execs)
+
+
+def _ensure_config_analysis(
+    progress_callback: Callable[[float, str], None] | None = None,
+) -> None:
+    """Run config analysis if no cached result exists, so the full report includes it."""
+    try:
+        from claudealytics.analytics.config_analyzer import load_cached_analysis, run_full_analysis
+        cached = load_cached_analysis()
+        if cached is None:
+            if progress_callback:
+                progress_callback(0.06, "Running config analysis (first time)...")
+
+            def _config_progress(pct, text):
+                # Map config analysis progress (0-1) into our 0.06-0.14 range
+                if progress_callback:
+                    progress_callback(0.06 + pct * 0.08, f"Config analysis: {text}")
+
+            run_full_analysis(progress_callback=_config_progress)
+    except Exception:
+        pass  # Non-critical — report will just have empty config health section
 
 
 def generate_full_report(
@@ -267,18 +466,26 @@ def generate_full_report(
     timestamp = datetime.now(timezone.utc).isoformat()
 
     if progress_callback:
-        progress_callback(0.05, "Collecting platform data...")
+        progress_callback(0.05, "Checking config analysis...")
 
+    # Ensure config analysis is available before collecting data
+    _ensure_config_analysis(progress_callback)
+
+    if progress_callback:
+        progress_callback(0.15, "Collecting platform data...")
+
+    platform_data = collect_platform_data(stats, agent_execs, skill_execs)
     data_summary = summarize_platform_data(stats, agent_execs, skill_execs)
 
     if progress_callback:
-        progress_callback(0.2, "Data collected. Generating report with Opus...")
+        progress_callback(0.25, "Data collected. Generating report with Opus...")
 
     # Check claude CLI availability
     if not shutil.which("claude"):
         return FullReport(
             timestamp=timestamp,
             data_summary=data_summary,
+            data_json=platform_data,
             error="'claude' CLI not found in PATH",
             generation_duration_seconds=round(time.time() - start, 1),
         )
@@ -331,6 +538,7 @@ def generate_full_report(
             report = FullReport(
                 timestamp=timestamp,
                 data_summary=data_summary,
+                data_json=platform_data,
                 model_used=model,
                 error=f"CLI exit code {result.returncode}: {error_detail}",
                 generation_duration_seconds=elapsed,
@@ -341,6 +549,7 @@ def generate_full_report(
                 timestamp=timestamp,
                 report_markdown=report_text,
                 data_summary=data_summary,
+                data_json=platform_data,
                 model_used=model,
                 generation_duration_seconds=elapsed,
             )
@@ -350,6 +559,7 @@ def generate_full_report(
         report = FullReport(
             timestamp=timestamp,
             data_summary=data_summary,
+            data_json=platform_data,
             model_used=model,
             error="Report generation timed out after 180s",
             generation_duration_seconds=elapsed,
@@ -359,6 +569,7 @@ def generate_full_report(
         report = FullReport(
             timestamp=timestamp,
             data_summary=data_summary,
+            data_json=platform_data,
             model_used=model,
             error=f"{type(e).__name__}: {str(e)[:200]}",
             generation_duration_seconds=elapsed,
@@ -371,10 +582,25 @@ def generate_full_report(
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_CACHE.write_text(report.model_dump_json(indent=2))
 
+    # Save timestamped snapshot
+    _save_report_snapshot(report)
+
     if progress_callback:
         progress_callback(1.0, "Report complete")
 
     return report
+
+
+def _save_report_snapshot(report: FullReport) -> Path | None:
+    """Save a timestamped snapshot of the report to the reports directory."""
+    try:
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M%S")
+        snapshot_path = REPORTS_DIR / f"report-{ts}.json"
+        snapshot_path.write_text(report.model_dump_json(indent=2))
+        return snapshot_path
+    except Exception:
+        return None
 
 
 def load_cached_report() -> FullReport | None:
@@ -383,6 +609,35 @@ def load_cached_report() -> FullReport | None:
         return None
     try:
         data = json.loads(REPORT_CACHE.read_text())
+        return FullReport.model_validate(data)
+    except Exception:
+        return None
+
+
+def list_report_snapshots() -> list[dict]:
+    """List saved report snapshots, sorted newest first.
+
+    Returns list of dicts with keys: path, filename, timestamp.
+    """
+    if not REPORTS_DIR.exists():
+        return []
+    snapshots = []
+    for f in sorted(REPORTS_DIR.glob("report-*.json"), reverse=True):
+        # Extract timestamp from filename: report-YYYY-MM-DD-HHMMSS.json
+        name = f.stem  # report-2026-02-22-143000
+        ts_part = name.replace("report-", "")
+        snapshots.append({
+            "path": str(f),
+            "filename": f.name,
+            "timestamp": ts_part,
+        })
+    return snapshots
+
+
+def load_report_snapshot(path: str) -> FullReport | None:
+    """Load a specific report snapshot from disk."""
+    try:
+        data = json.loads(Path(path).read_text())
         return FullReport.model_validate(data)
     except Exception:
         return None

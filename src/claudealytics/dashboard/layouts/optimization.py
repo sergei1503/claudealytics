@@ -1,4 +1,4 @@
-"""Report tab: Full Report, Config Analysis, and Optimization Insights."""
+"""Report tab: Full Report and Config Analysis."""
 
 from __future__ import annotations
 
@@ -22,7 +22,10 @@ from claudealytics.analytics.optimization_analyzer import (
 from claudealytics.analytics.report_generator import (
     generate_full_report,
     load_cached_report,
+    list_report_snapshots,
+    load_report_snapshot,
 )
+from claudealytics.analytics.report_verifier import verify_report
 from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
 from claudealytics.models.schemas import AgentExecution, SkillExecution, StatsCache
 from claudealytics.scanner.agent_scanner import scan_agents
@@ -47,11 +50,10 @@ TYPE_LABELS = {
 
 
 def render(stats: StatsCache | None, agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
-    """Render the Report tab with three sub-tabs."""
-    tab_report, tab_analysis, tab_optimize = st.tabs([
+    """Render the Report tab with two sub-tabs."""
+    tab_report, tab_analysis = st.tabs([
         "📄 Full Report",
         "🔬 Config Analysis",
-        "📊 Optimization Insights",
     ])
 
     with tab_report:
@@ -59,9 +61,6 @@ def render(stats: StatsCache | None, agent_execs: list[AgentExecution], skill_ex
 
     with tab_analysis:
         _render_config_analysis()
-
-    with tab_optimize:
-        _render_optimization_insights(agent_execs, skill_execs)
 
 
 # ── Sub-tab 1: Full Report ────────────────────────────────────────
@@ -115,6 +114,32 @@ def _render_full_report(stats, agent_execs, skill_execs):
     if report.error and not report.report_markdown:
         st.warning(f"Last report had an error: {report.error}")
 
+    # ── Composite Health Score ──
+    if report.data_json:
+        try:
+            from claudealytics.analytics.aggregators.health_score_aggregator import compute_health_score
+            health = compute_health_score(report.data_json)
+
+            if health.active_count > 0:
+                color = "🟢" if health.overall_score >= 80 else "🟡" if health.overall_score >= 50 else "🔴"
+                st.subheader(f"Platform Health Score: {color} {health.overall_score}/100")
+                st.progress(health.overall_score / 100)
+                st.caption(f"{health.active_count} of {health.total_count} metrics available")
+
+                cols = st.columns(2)
+                for i, sub in enumerate(health.sub_scores):
+                    with cols[i % 2]:
+                        if sub.score is not None:
+                            sc = "🟢" if sub.score >= 80 else "🟡" if sub.score >= 50 else "🔴"
+                            st.markdown(f"**{sc} {sub.label}** {sub.score}")
+                        else:
+                            st.markdown(f"**⚪ {sub.label}** N/A")
+                        st.caption(sub.explanation or "No data")
+
+                st.divider()
+        except Exception:
+            pass
+
     if report.report_markdown:
         st.markdown(report.report_markdown)
 
@@ -126,10 +151,161 @@ def _render_full_report(stats, agent_execs, skill_execs):
             mime="text/markdown",
         )
 
+    # Data Verification
+    if report.report_markdown and report.data_json:
+        verification = verify_report(report)
+        with st.expander(
+            f"Data Verification ({verification.total_matched}/{verification.total_checked} metrics match)",
+            expanded=verification.total_mismatched > 0,
+        ):
+            if verification.total_checked == 0:
+                st.info("No metrics could be verified (no structured data available).")
+            else:
+                cols = st.columns(4)
+                with cols[0]:
+                    st.metric("Checked", verification.total_checked)
+                with cols[1]:
+                    st.metric("Matched", verification.total_matched)
+                with cols[2]:
+                    st.metric("Mismatched", verification.total_mismatched)
+                with cols[3]:
+                    st.metric("Not Found", verification.total_missing)
+
+                for check in verification.checks:
+                    if check.matches:
+                        icon = ":green[OK]"
+                    elif check.report_value is None:
+                        icon = ":orange[--]"
+                    else:
+                        icon = ":red[!!]"
+                    actual_str = f"{check.actual_value:,.1f}" if check.actual_value is not None else "N/A"
+                    report_str = f"{check.report_value:,.1f}" if check.report_value is not None else "not found"
+                    note = f" — {check.note}" if check.note else ""
+                    st.markdown(f"{icon} **{check.metric}**: report={report_str}, actual={actual_str}{note}")
+
+    # Report History
+    snapshots = list_report_snapshots()
+    if snapshots:
+        with st.expander(f"Report History ({len(snapshots)} snapshots)"):
+            selected_snap = st.selectbox(
+                "Load a previous report",
+                options=snapshots,
+                format_func=lambda s: f"{s['timestamp']} ({s['filename']})",
+                index=None,
+                placeholder="Select a snapshot to view...",
+                key="report_snapshot_selector",
+            )
+            if selected_snap:
+                old_report = load_report_snapshot(selected_snap["path"])
+                if old_report:
+                    st.caption(f"Loaded: {selected_snap['filename']} | Model: {old_report.model_used or 'unknown'}")
+                    if old_report.report_markdown:
+                        st.markdown(old_report.report_markdown)
+                    if old_report.data_json:
+                        with st.expander("Structured Data (JSON)"):
+                            st.json(old_report.data_json)
+                else:
+                    st.error("Failed to load snapshot.")
+
     # Expandable raw data summary
     if report.data_summary:
         with st.expander("View Raw Data Summary"):
             st.text(report.data_summary)
+
+    # Configuration Cross-Reference (merged from former Optimization Insights sub-tab)
+    if report.report_markdown:
+        _render_config_cross_reference(agent_execs, skill_execs)
+
+
+def _render_config_cross_reference(agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
+    """Render configuration cross-reference as a collapsed expander in the Full Report."""
+    with st.expander("Configuration Cross-Reference & Issues"):
+        with st.spinner("Analyzing configuration..."):
+            stats = mine_tool_usage_stats(use_cache=True)
+            agents = scan_agents()
+            skills = scan_skills()
+            claude_md_files, _ = scan_claude_md_files()
+
+            unused_agents = analyze_unused_agents(agents, agent_execs)
+            unused_skills = analyze_unused_skills(skills, skill_execs)
+            duplicates = analyze_duplicate_guidance(claude_md_files)
+            efficiency = analyze_agent_efficiency(agent_execs)
+
+        # Agent-to-Definition Cross-Reference
+        st.subheader("Agent-to-Definition Cross-Reference")
+
+        defined_names = {a.name for a in agents}
+        used_names = set(stats.agents.keys()) if stats.agents else set()
+
+        mapped = used_names & defined_names
+        unmapped_used = used_names - defined_names
+        unused_defined = defined_names - used_names
+
+        col_m, col_u, col_d = st.columns(3)
+        with col_m:
+            st.metric("Mapped (used + defined)", len(mapped))
+        with col_u:
+            st.metric("Used but no definition", len(unmapped_used))
+        with col_d:
+            st.metric("Defined but unused", len(unused_defined))
+
+        if unmapped_used:
+            st.warning(
+                f"**{len(unmapped_used)} agents** found in conversations but have no "
+                f"`.md` definition: {', '.join(sorted(unmapped_used))}"
+            )
+        if unused_defined:
+            st.info(
+                f"**{len(unused_defined)} agents** defined but never invoked: "
+                f"{', '.join(sorted(unused_defined))}"
+            )
+
+        st.caption(
+            "Unmapped agents may be historical, archived, or renamed since the conversation was recorded."
+        )
+
+        st.divider()
+
+        # Unused Components
+        st.subheader("Unused Components")
+
+        unused_agent_names = [issue.title.replace("Unused agent: ", "") for issue in unused_agents]
+        unused_skill_names = [issue.title.replace("Unused skill: ", "") for issue in unused_skills]
+
+        col_a, col_s = st.columns(2)
+        with col_a:
+            st.markdown("**Unused Agents**")
+            if unused_agent_names:
+                for name in unused_agent_names:
+                    st.markdown(f"- `{name}`")
+            else:
+                st.success("All defined agents are being used")
+
+        with col_s:
+            st.markdown("**Unused Skills**")
+            if unused_skill_names:
+                for name in unused_skill_names:
+                    st.markdown(f"- `{name}`")
+            else:
+                st.success("All defined skills are being used")
+
+        st.divider()
+
+        # Issues & Warnings
+        st.subheader("Issues & Warnings")
+
+        if duplicates:
+            st.warning(f"Found {len(duplicates)} duplicate routing issues")
+            for issue in duplicates:
+                st.markdown(f"- **{issue.title}** — {issue.impact}")
+
+        if efficiency:
+            st.warning(f"Found {len(efficiency)} efficiency issues")
+            for issue in efficiency:
+                st.markdown(f"- **{issue.title}** — {issue.impact}")
+
+        if not duplicates and not efficiency:
+            st.success("No critical issues found")
 
 
 # ── Sub-tab 2: Config Analysis ────────────────────────────────────
@@ -298,153 +474,3 @@ def _render_config_analysis():
                     st.caption(f"`{name}` — {review.summary}")
 
 
-# ── Sub-tab 3: Optimization Insights ──────────────────────────────
-
-
-def _render_optimization_insights(agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
-    """Consolidated optimization insights — read-only, no button needed."""
-
-    with st.spinner("Analyzing configuration for optimizations..."):
-        stats = mine_tool_usage_stats(use_cache=True)
-        agents = scan_agents()
-        skills = scan_skills()
-        claude_md_files, _ = scan_claude_md_files()
-
-        unused_agents = analyze_unused_agents(agents, agent_execs)
-        unused_skills = analyze_unused_skills(skills, skill_execs)
-        duplicates = analyze_duplicate_guidance(claude_md_files)
-        efficiency = analyze_agent_efficiency(agent_execs)
-
-    # Summary metrics row
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(
-            "Total Conversations",
-            f"{stats.total_conversations:,}",
-            help="Number of conversations analyzed for usage patterns",
-        )
-    with col2:
-        st.metric(
-            "Unique Agents Used",
-            len(stats.agents),
-            delta=f"{len(stats.agents) - len(agents)} vs defined" if len(stats.agents) != len(agents) else None,
-            help="Agents actually invoked vs defined in configuration",
-        )
-    with col3:
-        st.metric(
-            "Unused Components",
-            len(unused_agents) + len(unused_skills),
-            help="Agents and skills that have never been executed",
-        )
-    with col4:
-        total_issues = len(unused_agents) + len(unused_skills) + len(duplicates) + len(efficiency)
-        severity_color = "🟢" if total_issues < 10 else "🟡" if total_issues < 30 else "🔴"
-        st.metric(
-            "Optimization Opportunities",
-            f"{severity_color} {total_issues}",
-            help="Total number of improvements identified",
-        )
-
-    st.divider()
-
-    # ── Usage Insights ──
-    st.subheader("Agent-to-Definition Cross-Reference")
-
-    defined_names = {a.name for a in agents}
-    used_names = set(stats.agents.keys()) if stats.agents else set()
-
-    mapped = used_names & defined_names
-    unmapped_used = used_names - defined_names
-    unused_defined = defined_names - used_names
-
-    col_m, col_u, col_d = st.columns(3)
-    with col_m:
-        st.metric("Mapped (used + defined)", len(mapped))
-    with col_u:
-        st.metric("Used but no definition", len(unmapped_used))
-    with col_d:
-        st.metric("Defined but unused", len(unused_defined))
-
-    if unmapped_used:
-        st.warning(
-            f"**{len(unmapped_used)} agents** found in conversations but have no "
-            f"`.md` definition: {', '.join(sorted(unmapped_used))}"
-        )
-    if unused_defined:
-        st.info(
-            f"**{len(unused_defined)} agents** defined but never invoked: "
-            f"{', '.join(sorted(unused_defined))}"
-        )
-
-    st.divider()
-
-    # ── Unused Components ──
-    st.subheader("Unused Components")
-
-    unused_agent_names = [issue.title.replace("Unused agent: ", "") for issue in unused_agents]
-    unused_skill_names = [issue.title.replace("Unused skill: ", "") for issue in unused_skills]
-
-    col_a, col_s = st.columns(2)
-    with col_a:
-        st.markdown("**Unused Agents**")
-        if unused_agent_names:
-            for name in unused_agent_names:
-                st.markdown(f"- `{name}`")
-        else:
-            st.success("All defined agents are being used")
-
-    with col_s:
-        st.markdown("**Unused Skills**")
-        if unused_skill_names:
-            for name in unused_skill_names:
-                st.markdown(f"- `{name}`")
-        else:
-            st.success("All defined skills are being used")
-
-    if unused_agent_names or unused_skill_names:
-        total_unused = len(unused_agent_names) + len(unused_skill_names)
-        st.info(
-            f"Removing {total_unused} unused components would reduce configuration "
-            f"size by ~{total_unused * 0.5:.0f}KB and speed up scanning."
-        )
-
-    st.divider()
-
-    # ── Quick Wins ──
-    st.subheader("Quick Wins")
-
-    if stats.agents:
-        top_agent = max(stats.agents.items(), key=lambda x: x[1])
-        if top_agent[1] > 100:
-            st.info(
-                f"**{top_agent[0]}** agent used **{top_agent[1]} times** — "
-                f"consider pre-computed indexes, result caching, or a faster model (haiku) for simple lookups."
-            )
-
-    if not (unused_agent_names or unused_skill_names or (stats.agents and max(stats.agents.values(), default=0) > 100)):
-        st.success("No quick wins identified — configuration looks well-optimized!")
-
-    st.divider()
-
-    # ── Issues & Warnings ──
-    st.subheader("Issues & Warnings")
-
-    if duplicates:
-        st.warning(f"Found {len(duplicates)} duplicate routing issues")
-        for issue in duplicates:
-            with st.expander(issue.title):
-                st.markdown(f"**Impact:** {issue.impact}")
-                st.markdown(f"**Recommendation:** {issue.recommendation}")
-                if issue.files:
-                    st.markdown(f"**Files:** {', '.join(issue.files)}")
-
-    if efficiency:
-        st.warning(f"Found {len(efficiency)} efficiency issues")
-        for issue in efficiency:
-            with st.expander(issue.title):
-                st.markdown(f"**Description:** {issue.description}")
-                st.markdown(f"**Impact:** {issue.impact}")
-                st.markdown(f"**Recommendation:** {issue.recommendation}")
-
-    if not duplicates and not efficiency:
-        st.success("No critical issues found")

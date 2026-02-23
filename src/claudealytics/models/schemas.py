@@ -245,11 +245,29 @@ class ContentMineResult(BaseModel):
 
 # ── Full Report Models ──────────────────────────────────────────
 
+class HealthSubScore(BaseModel):
+    """A single dimension of the composite health score."""
+    name: str
+    label: str
+    score: int | None = None
+    weight: float = 0.0
+    explanation: str = ""
+
+
+class HealthScoreResult(BaseModel):
+    """Composite platform health score with sub-scores."""
+    overall_score: int = 0
+    sub_scores: list[HealthSubScore] = Field(default_factory=list)
+    active_count: int = 0
+    total_count: int = 0
+
+
 class FullReport(BaseModel):
     """Result of LLM-generated full platform report."""
     timestamp: str
     report_markdown: str = ""
     data_summary: str = ""
+    data_json: dict = Field(default_factory=dict)
     model_used: str = ""
     generation_duration_seconds: float = 0.0
     error: str = ""

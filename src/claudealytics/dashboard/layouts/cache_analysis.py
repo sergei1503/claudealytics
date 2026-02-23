@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import streamlit as st
-import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
@@ -11,7 +10,6 @@ from claudealytics.analytics.parsers.token_miner import mine_daily_tokens, mine_
 from claudealytics.analytics.cache_analyzer import (
     compute_daily_cache_metrics,
     compute_cost_savings,
-    compute_session_cache_metrics,
     detect_cache_breaking_sessions,
     project_cache_summary,
 )
@@ -29,7 +27,6 @@ def render(stats):
     # Compute metrics
     daily_metrics = compute_daily_cache_metrics(daily_df)
     cost_savings = compute_cost_savings(daily_df)
-    session_metrics = compute_session_cache_metrics(session_df)
     project_summary = project_cache_summary(session_df)
 
     # --- KPI Header ---
@@ -164,40 +161,6 @@ def render(stats):
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig, use_container_width=True)
-
-    # --- Session Cache Efficiency Scatter ---
-    if not session_metrics.empty:
-        st.subheader("Session Cache Efficiency", help="Per-session cache hit rate vs message count. Larger dots = more input tokens. Sessions above 70% are healthy.")
-        scatter_df = session_metrics[session_metrics["message_count"] >= 2].copy()
-        if not scatter_df.empty:
-            scatter_df["total_input_k"] = scatter_df["total_input_tokens"] / 1000
-            fig = px.scatter(
-                scatter_df,
-                x="message_count",
-                y="cache_hit_rate",
-                color="project",
-                size="total_input_k",
-                size_max=20,
-                hover_data={
-                    "model": True,
-                    "cache_reuse_multiplier": ":.2f",
-                    "total_input_k": ":.0f",
-                    "message_count": True,
-                    "cache_hit_rate": ":.1f",
-                },
-                labels={
-                    "message_count": "Messages",
-                    "cache_hit_rate": "Cache Hit Rate (%)",
-                    "total_input_k": "Total Input (K tokens)",
-                    "project": "Project",
-                },
-            )
-            fig.add_hline(y=70, line_dash="dash", line_color="rgba(239,68,68,0.3)")
-            fig.update_layout(
-                height=450, margin=dict(l=20, r=20, t=60, b=0),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            )
-            st.plotly_chart(fig, use_container_width=True)
 
     # --- Cache Efficiency by Project ---
     if not project_summary.empty:

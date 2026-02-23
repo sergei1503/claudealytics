@@ -4,6 +4,7 @@
 
 - **`dev`** — Active development branch. All new work happens here.
 - **`main`** — Stable/release branch. Only receives merges from `dev` via PR.
+- **NEVER push `dev` to origin.** The `dev` branch is local-only. Only `main` is pushed to the public remote.
 - Local dev server (`claudealytics.localhost:1355`) always runs from `dev`.
 - When starting a session, ensure you're on `dev`: `git checkout dev`
 
