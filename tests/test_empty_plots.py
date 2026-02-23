@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import pandas as pd
 
-from claudealytics.analytics.aggregators.intervention_aggregator import compute_autonomy
-from claudealytics.analytics.aggregators.loop_aggregator import compute_tool_sequences
 from claudealytics.analytics.aggregators.file_activity_aggregator import (
+    compute_change_volume,
+    compute_cooccurrence,
     compute_files_per_session,
     compute_hot_files,
-    compute_cooccurrence,
-    compute_change_volume,
 )
-
+from claudealytics.analytics.aggregators.intervention_aggregator import compute_autonomy
+from claudealytics.analytics.aggregators.loop_aggregator import compute_tool_sequences
 
 # ── Aggregator tests ──────────────────────────────────────────────
 
