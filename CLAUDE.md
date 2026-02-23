@@ -3,8 +3,8 @@
 ## Branch Strategy
 
 - **`dev`** — Active development branch. All new work happens here.
-- **`main`** — Stable/release branch. Only receives merges from `dev` via PR.
-- **NEVER push `dev` to origin.** The `dev` branch is local-only. Only `main` is pushed to the public remote.
+- **`main`** — Stable/release branch. Receives merges from `dev`.
+- Both `dev` and `main` are pushed to origin. After merging to `main`, sync `dev` and push both.
 - Local dev server (`claudealytics.localhost:1355`) always runs from `dev`.
 - When starting a session, ensure you're on `dev`: `git checkout dev`
 
