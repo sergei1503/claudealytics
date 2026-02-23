@@ -10,13 +10,11 @@ def _clamp(v: float, lo: float = 0, hi: float = 100) -> int:
 
 
 def _score_cache_efficiency(data: dict) -> HealthSubScore:
-    """Cache hit rate: 80%+ → 100, 40% → 50, 0% → 0."""
     cache = data.get("cache", {})
     hit_rate = cache.get("hit_rate")
     if hit_rate is None:
         return HealthSubScore(name="cache_efficiency", label="Cache Efficiency", weight=0.20)
 
-    # Linear mapping: 0% → 0, 80%+ → 100
     score = _clamp((hit_rate / 80) * 100)
     return HealthSubScore(
         name="cache_efficiency", label="Cache Efficiency",
@@ -26,7 +24,6 @@ def _score_cache_efficiency(data: dict) -> HealthSubScore:
 
 
 def _score_error_rate(data: dict) -> HealthSubScore:
-    """Error rate: 0% → 100, 5% → 75, 20%+ → 0."""
     content = data.get("content", {})
     total_errors = content.get("total_errors")
     total_tool_calls = content.get("total_tool_calls")
@@ -34,7 +31,6 @@ def _score_error_rate(data: dict) -> HealthSubScore:
         return HealthSubScore(name="error_rate", label="Error Rate", weight=0.15)
 
     error_pct = (total_errors / total_tool_calls) * 100
-    # Piecewise: 0% → 100, 5% → 75, 20% → 0
     if error_pct <= 5:
         score = 100 - (error_pct / 5) * 25
     else:
@@ -47,7 +43,6 @@ def _score_error_rate(data: dict) -> HealthSubScore:
 
 
 def _score_read_before_write(data: dict) -> HealthSubScore:
-    """Proportion of file writes preceded by a read."""
     content = data.get("content", {})
     writes_total = content.get("writes_total_count")
     writes_with_read = content.get("writes_with_prior_read_count")
@@ -63,7 +58,6 @@ def _score_read_before_write(data: dict) -> HealthSubScore:
 
 
 def _score_token_efficiency(data: dict) -> HealthSubScore:
-    """Output-to-input ratio: sweet spot 0.15–0.60 → 100, degrades outside."""
     activity = data.get("activity", {})
     model_usage = activity.get("model_usage", {})
     if not model_usage:
@@ -75,7 +69,6 @@ def _score_token_efficiency(data: dict) -> HealthSubScore:
         return HealthSubScore(name="token_efficiency", label="Token Efficiency", weight=0.10)
 
     ratio = total_output / total_input
-    # Sweet spot: 0.15–0.60 → 100, degrades to 0 at 0 and 1.5
     if 0.15 <= ratio <= 0.60:
         score = 100
     elif ratio < 0.15:
@@ -90,7 +83,6 @@ def _score_token_efficiency(data: dict) -> HealthSubScore:
 
 
 def _score_model_balance(data: dict) -> HealthSubScore:
-    """Rewards Opus+Sonnet mix, bonus for Haiku usage."""
     activity = data.get("activity", {})
     model_usage = activity.get("model_usage", {})
     if not model_usage:
@@ -100,7 +92,6 @@ def _score_model_balance(data: dict) -> HealthSubScore:
     if total_tokens == 0:
         return HealthSubScore(name="model_balance", label="Model Balance", weight=0.10)
 
-    # Classify models
     opus_tokens = sonnet_tokens = haiku_tokens = 0
     for model, usage in model_usage.items():
         t = usage.get("total_tokens", 0)
@@ -116,20 +107,17 @@ def _score_model_balance(data: dict) -> HealthSubScore:
     sonnet_pct = sonnet_tokens / total_tokens
     haiku_pct = haiku_tokens / total_tokens
 
-    # Base score: reward having both opus and sonnet
     models_used = sum(1 for p in [opus_pct, sonnet_pct, haiku_pct] if p > 0.01)
     if models_used == 1:
-        score = 40  # Single model = low balance
+        score = 40
     elif models_used == 2:
         score = 70
     else:
         score = 85
 
-    # Bonus for haiku usage (fine-grained execution)
     if haiku_pct > 0.05:
         score = min(100, score + 15)
 
-    # Penalty if >90% on one model
     max_pct = max(opus_pct, sonnet_pct, haiku_pct)
     if max_pct > 0.90:
         score = min(score, 30)
@@ -143,7 +131,6 @@ def _score_model_balance(data: dict) -> HealthSubScore:
 
 
 def _score_config_health(data: dict) -> HealthSubScore:
-    """Existing config analysis score if available."""
     ch = data.get("config_health", {})
     health = ch.get("health_score")
     if health is None:
@@ -159,16 +146,13 @@ def _score_config_health(data: dict) -> HealthSubScore:
 
 
 def _score_autonomy(data: dict) -> HealthSubScore:
-    """Workflow smoothness: avg autonomy run length + low correction rate."""
     content = data.get("content", {})
     avg_run = content.get("avg_autonomy_run_length")
     if avg_run is None:
         return HealthSubScore(name="autonomy", label="Autonomy & Efficiency", weight=0.10)
 
-    # Autonomy run length: 1 → 20, 3 → 60, 5+ → 80-100
     run_score = _clamp((avg_run / 6) * 100)
 
-    # Correction rate penalty
     total_interventions = (
         content.get("intervention_correction", 0)
         + content.get("intervention_approval", 0)
@@ -178,7 +162,7 @@ def _score_autonomy(data: dict) -> HealthSubScore:
     corrections = content.get("intervention_correction", 0)
     if total_interventions > 0:
         correction_pct = corrections / total_interventions
-        correction_penalty = correction_pct * 30  # Up to -30 for high correction rate
+        correction_penalty = correction_pct * 30
         run_score = _clamp(run_score - correction_penalty)
 
     return HealthSubScore(
@@ -189,7 +173,6 @@ def _score_autonomy(data: dict) -> HealthSubScore:
 
 
 def _score_agent_utilization(data: dict) -> HealthSubScore:
-    """Used vs defined agents/skills ratio."""
     as_data = data.get("agents_skills", {})
     opt = data.get("optimization", {})
 
@@ -214,10 +197,6 @@ def _score_agent_utilization(data: dict) -> HealthSubScore:
 
 
 def compute_health_score(platform_data: dict) -> HealthScoreResult:
-    """Compute composite health score from platform data dict.
-
-    Missing sub-scores are excluded and weights redistributed proportionally.
-    """
     scorers = [
         _score_cache_efficiency,
         _score_error_rate,
@@ -230,32 +209,22 @@ def compute_health_score(platform_data: dict) -> HealthScoreResult:
     ]
 
     sub_scores = [fn(platform_data) for fn in scorers]
-    total_count = len(sub_scores)
-
     active = [s for s in sub_scores if s.score is not None]
-    active_count = len(active)
 
-    if active_count == 0:
+    if not active:
         return HealthScoreResult(
             overall_score=0,
             sub_scores=sub_scores,
             active_count=0,
-            total_count=total_count,
+            total_count=len(sub_scores),
         )
 
-    # Redistribute weights proportionally among active sub-scores
-    total_active_weight = sum(s.weight for s in active)
-    if total_active_weight == 0:
-        total_active_weight = 1.0
-
-    weighted_sum = 0.0
-    for s in active:
-        normalized_weight = s.weight / total_active_weight
-        weighted_sum += s.score * normalized_weight
+    total_active_weight = sum(s.weight for s in active) or 1.0
+    weighted_sum = sum(s.score * (s.weight / total_active_weight) for s in active)
 
     return HealthScoreResult(
         overall_score=_clamp(weighted_sum),
         sub_scores=sub_scores,
-        active_count=active_count,
-        total_count=total_count,
+        active_count=len(active),
+        total_count=len(sub_scores),
     )

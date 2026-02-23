@@ -4,9 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Analytics dashboard for Claude Code power users. Mine your local conversation history to understand usage patterns, track costs, and optimize your workflow.
-
-> **Privacy first** — all analysis runs locally. No data leaves your machine.
+Analytics dashboard for Claude Code power users. Mine your local conversation history to understand usage patterns, track costs, and optimize your workflow. All analysis runs locally.
 
 ## Quick Start
 
@@ -29,27 +27,27 @@ claudealytics dashboard
 
 <table>
 <tr>
-<td width="50%"><strong>Report</strong><br>LLM-scored health assessment<br><img src="docs/screenshots/report.png" alt="Report"></td>
-<td width="50%"><strong>Config Health</strong><br>File sizes and quality issues<br><img src="docs/screenshots/config_health.png" alt="Config Health"></td>
+<td width="50%"><img src="docs/screenshots/report.png" alt="Report"><br><strong>Report</strong> — LLM-scored health assessment</td>
+<td width="50%"><img src="docs/screenshots/config_health.png" alt="Config Health"><br><strong>Config Health</strong> — File sizes and quality issues</td>
 </tr>
 <tr>
-<td><strong>Daily Input Tokens</strong><br>Token consumption by model<br><img src="docs/screenshots/daily_input_tokens.png" alt="Daily Input Tokens"></td>
-<td><strong>Cache Hit Rate</strong><br>Daily cache efficiency<br><img src="docs/screenshots/cache_hit_rate.png" alt="Cache Hit Rate"></td>
+<td><img src="docs/screenshots/daily_input_tokens.png" alt="Daily Input Tokens"><br><strong>Daily Input Tokens</strong> — Token consumption by model</td>
+<td><img src="docs/screenshots/cache_hit_rate.png" alt="Cache Hit Rate"><br><strong>Cache Hit Rate</strong> — Daily cache efficiency</td>
 </tr>
 <tr>
-<td><strong>Daily Tool Calls</strong><br>Tool usage over time<br><img src="docs/screenshots/daily_tool_calls.png" alt="Daily Tool Calls"></td>
-<td><strong>Tool Usage by Type</strong><br>Read/write/execute breakdown<br><img src="docs/screenshots/tool_usage_type.png" alt="Tool Usage by Type"></td>
+<td><img src="docs/screenshots/daily_tool_calls.png" alt="Daily Tool Calls"><br><strong>Daily Tool Calls</strong> — Tool usage over time</td>
+<td><img src="docs/screenshots/tool_usage_type.png" alt="Tool Usage by Type"><br><strong>Tool Usage by Type</strong> — Read/write/execute breakdown</td>
 </tr>
 <tr>
-<td><strong>Read-Before-Write</strong><br>Code discipline tracking<br><img src="docs/screenshots/read_before_write.png" alt="Read-Before-Write Discipline"></td>
-<td><strong>Complexity Over Time</strong><br>Session complexity trends<br><img src="docs/screenshots/complexity.png" alt="Complexity Over Time"></td>
+<td><img src="docs/screenshots/read_before_write.png" alt="Read-Before-Write"><br><strong>Read-Before-Write</strong> — Code discipline tracking</td>
+<td><img src="docs/screenshots/complexity.png" alt="Complexity Over Time"><br><strong>Complexity Over Time</strong> — Session complexity trends</td>
 </tr>
 <tr>
-<td><strong>Language Trend</strong><br>Language distribution over time<br><img src="docs/screenshots/language_trend.png" alt="Language Trend"></td>
-<td><strong>Ecosystem Signals</strong><br>Framework and tool detection<br><img src="docs/screenshots/ecosystem_signals.png" alt="Ecosystem Signals"></td>
+<td><img src="docs/screenshots/language_trend.png" alt="Language Trend"><br><strong>Language Trend</strong> — Language distribution over time</td>
+<td><img src="docs/screenshots/ecosystem_signals.png" alt="Ecosystem Signals"><br><strong>Ecosystem Signals</strong> — Framework and tool detection</td>
 </tr>
 <tr>
-<td colspan="2" align="center"><strong>Agent Usage Over Time</strong><br>Agent invocation trends<br><img src="docs/screenshots/agent_usage.png" alt="Agent Usage Over Time" width="60%"></td>
+<td colspan="2" align="center"><img src="docs/screenshots/agent_usage.png" alt="Agent Usage Over Time" width="60%"><br><strong>Agent Usage Over Time</strong> — Agent invocation trends</td>
 </tr>
 </table>
 

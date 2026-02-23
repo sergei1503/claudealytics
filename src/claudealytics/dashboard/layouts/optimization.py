@@ -1,5 +1,3 @@
-"""Report tab: Full Report and Config Analysis."""
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -9,10 +7,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from claudealytics.analytics.config_analyzer import (
-    load_cached_analysis,
-    run_full_analysis,
-)
+from claudealytics.analytics.config_analyzer import load_cached_analysis, run_full_analysis
 from claudealytics.analytics.optimization_analyzer import (
     analyze_unused_agents,
     analyze_unused_skills,
@@ -33,7 +28,6 @@ from claudealytics.scanner.skill_scanner import scan_skills
 from claudealytics.scanner.claude_md_scanner import scan_claude_md_files
 
 
-# Color map for file types (shared with config_health)
 TYPE_COLORS = {
     "agent": "#7c3aed",
     "skill": "#ec4899",
@@ -50,25 +44,16 @@ TYPE_LABELS = {
 
 
 def render(stats: StatsCache | None, agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
-    """Render the Report tab with two sub-tabs."""
-    tab_report, tab_analysis = st.tabs([
-        "📄 Full Report",
-        "🔬 Config Analysis",
-    ])
+    tab_report, tab_analysis = st.tabs(["📄 Full Report", "🔬 Config Analysis"])
 
     with tab_report:
         _render_full_report(stats, agent_execs, skill_execs)
-
     with tab_analysis:
         _render_config_analysis()
 
 
-# ── Sub-tab 1: Full Report ────────────────────────────────────────
-
-
 @st.fragment
 def _render_full_report(stats, agent_execs, skill_execs):
-    """LLM-generated comprehensive platform report."""
     if "full_report_result" not in st.session_state:
         st.session_state.full_report_result = load_cached_report()
 
@@ -90,11 +75,10 @@ def _render_full_report(stats, agent_execs, skill_execs):
 
     if run_clicked:
         progress_bar = st.progress(0, text="Starting report generation...")
-
-        def update_progress(pct, text):
-            progress_bar.progress(pct, text=text)
-
-        result = generate_full_report(stats, agent_execs, skill_execs, progress_callback=update_progress)
+        result = generate_full_report(
+            stats, agent_execs, skill_execs,
+            progress_callback=lambda pct, text: progress_bar.progress(pct, text=text)
+        )
         progress_bar.empty()
         st.session_state.full_report_result = result
 
@@ -102,9 +86,6 @@ def _render_full_report(stats, agent_execs, skill_execs):
             st.error(f"Report generation failed: {result.error}")
         else:
             st.success("Report generated successfully!")
-    else:
-        if st.session_state.full_report_result:
-            current = st.session_state.full_report_result
 
     report = st.session_state.full_report_result
     if not report:
@@ -114,7 +95,6 @@ def _render_full_report(stats, agent_execs, skill_execs):
     if report.error and not report.report_markdown:
         st.warning(f"Last report had an error: {report.error}")
 
-    # ── Composite Health Score ──
     if report.data_json:
         try:
             from claudealytics.analytics.aggregators.health_score_aggregator import compute_health_score
@@ -135,7 +115,6 @@ def _render_full_report(stats, agent_execs, skill_execs):
                         else:
                             st.markdown(f"**⚪ {sub.label}** N/A")
                         st.caption(sub.explanation or "No data")
-
                 st.divider()
         except Exception:
             pass
@@ -143,7 +122,6 @@ def _render_full_report(stats, agent_execs, skill_execs):
     if report.report_markdown:
         st.markdown(report.report_markdown)
 
-        # Download button
         st.download_button(
             label="📥 Download Report (Markdown)",
             data=report.report_markdown,
@@ -151,7 +129,6 @@ def _render_full_report(stats, agent_execs, skill_execs):
             mime="text/markdown",
         )
 
-    # Data Verification
     if report.report_markdown and report.data_json:
         verification = verify_report(report)
         with st.expander(
@@ -183,7 +160,6 @@ def _render_full_report(stats, agent_execs, skill_execs):
                     note = f" — {check.note}" if check.note else ""
                     st.markdown(f"{icon} **{check.metric}**: report={report_str}, actual={actual_str}{note}")
 
-    # Report History
     snapshots = list_report_snapshots()
     if snapshots:
         with st.expander(f"Report History ({len(snapshots)} snapshots)"):
@@ -207,66 +183,47 @@ def _render_full_report(stats, agent_execs, skill_execs):
                 else:
                     st.error("Failed to load snapshot.")
 
-    # Expandable raw data summary
     if report.data_summary:
         with st.expander("View Raw Data Summary"):
             st.text(report.data_summary)
 
-    # Configuration Cross-Reference (merged from former Optimization Insights sub-tab)
     if report.report_markdown:
         _render_config_cross_reference(agent_execs, skill_execs)
 
 
 def _render_config_cross_reference(agent_execs: list[AgentExecution], skill_execs: list[SkillExecution]):
-    """Render configuration cross-reference as a collapsed expander in the Full Report."""
     with st.expander("Configuration Cross-Reference & Issues"):
         with st.spinner("Analyzing configuration..."):
             stats = mine_tool_usage_stats(use_cache=True)
             agents = scan_agents()
             skills = scan_skills()
             claude_md_files, _ = scan_claude_md_files()
-
             unused_agents = analyze_unused_agents(agents, agent_execs)
             unused_skills = analyze_unused_skills(skills, skill_execs)
             duplicates = analyze_duplicate_guidance(claude_md_files)
             efficiency = analyze_agent_efficiency(agent_execs)
 
-        # Agent-to-Definition Cross-Reference
         st.subheader("Agent-to-Definition Cross-Reference")
 
         defined_names = {a.name for a in agents}
         used_names = set(stats.agents.keys()) if stats.agents else set()
-
         mapped = used_names & defined_names
         unmapped_used = used_names - defined_names
         unused_defined = defined_names - used_names
 
         col_m, col_u, col_d = st.columns(3)
-        with col_m:
-            st.metric("Mapped (used + defined)", len(mapped))
-        with col_u:
-            st.metric("Used but no definition", len(unmapped_used))
-        with col_d:
-            st.metric("Defined but unused", len(unused_defined))
+        col_m.metric("Mapped (used + defined)", len(mapped))
+        col_u.metric("Used but no definition", len(unmapped_used))
+        col_d.metric("Defined but unused", len(unused_defined))
 
         if unmapped_used:
-            st.warning(
-                f"**{len(unmapped_used)} agents** found in conversations but have no "
-                f"`.md` definition: {', '.join(sorted(unmapped_used))}"
-            )
+            st.warning(f"**{len(unmapped_used)} agents** found in conversations but have no `.md` definition: {', '.join(sorted(unmapped_used))}")
         if unused_defined:
-            st.info(
-                f"**{len(unused_defined)} agents** defined but never invoked: "
-                f"{', '.join(sorted(unused_defined))}"
-            )
+            st.info(f"**{len(unused_defined)} agents** defined but never invoked: {', '.join(sorted(unused_defined))}")
 
-        st.caption(
-            "Unmapped agents may be historical, archived, or renamed since the conversation was recorded."
-        )
-
+        st.caption("Unmapped agents may be historical, archived, or renamed since the conversation was recorded.")
         st.divider()
 
-        # Unused Components
         st.subheader("Unused Components")
 
         unused_agent_names = [issue.title.replace("Unused agent: ", "") for issue in unused_agents]
@@ -291,7 +248,6 @@ def _render_config_cross_reference(agent_execs: list[AgentExecution], skill_exec
 
         st.divider()
 
-        # Issues & Warnings
         st.subheader("Issues & Warnings")
 
         if duplicates:
@@ -308,12 +264,8 @@ def _render_config_cross_reference(agent_execs: list[AgentExecution], skill_exec
             st.success("No critical issues found")
 
 
-# ── Sub-tab 2: Config Analysis ────────────────────────────────────
-
-
 @st.fragment
 def _render_config_analysis():
-    """Config quality analysis with LLM reviews (moved from config_health)."""
     cached_analysis = load_cached_analysis()
 
     if "config_analysis_result" not in st.session_state:
@@ -336,12 +288,8 @@ def _render_config_analysis():
 
     if run_clicked:
         progress_bar = st.progress(0, text="Starting analysis...")
-
-        def update_progress(pct, text):
-            progress_bar.progress(pct, text=text)
-
         with st.spinner("Running full config analysis..."):
-            result = run_full_analysis(progress_callback=update_progress)
+            result = run_full_analysis(progress_callback=lambda pct, text: progress_bar.progress(pct, text=text))
         progress_bar.empty()
         st.session_state.config_analysis_result = result
         cached_analysis = result
@@ -354,7 +302,6 @@ def _render_config_analysis():
         st.info("Click 'Run Config Analysis' to generate insights about your configuration files.")
         return
 
-    # Summary metrics
     all_issues = cached_analysis.quality_issues + cached_analysis.consistency_issues
     high = sum(1 for i in all_issues if i.severity == "high")
     medium = sum(1 for i in all_issues if i.severity == "medium")
@@ -374,7 +321,6 @@ def _render_config_analysis():
 
     st.divider()
 
-    # Quality issues (grouped by message)
     if all_issues:
         st.subheader("Quality Issues", help="Detected problems in config files: missing sections, redundancy, oversized files, inconsistencies, etc.")
         for severity in ("high", "medium", "low"):
@@ -401,53 +347,40 @@ def _render_config_analysis():
     else:
         st.success("No quality issues found!")
 
-    # Complexity metrics
     if cached_analysis.complexity_metrics:
-        st.subheader("Complexity Metrics", help="Word count, section count, table density, and code block count per config file — higher values may indicate bloat.")
+        st.subheader("Complexity Metrics", help="Word count, section count, table density, and code block count per config file.")
         import plotly.express as px
 
         cdf = pd.DataFrame([m.model_dump() for m in cached_analysis.complexity_metrics])
         cdf["type_label"] = cdf["file_type"].map(TYPE_LABELS)
-
         cdf_sorted = cdf.sort_values("word_count", ascending=True)
+
         fig = px.bar(
-            cdf_sorted, x="word_count", y="name", color="type_label",
-            orientation="h",
+            cdf_sorted, x="word_count", y="name", color="type_label", orientation="h",
             color_discrete_map={v: TYPE_COLORS[k] for k, v in TYPE_LABELS.items()},
             labels={"word_count": "Word Count", "name": "File", "type_label": "Type"},
         )
         fig.update_layout(height=max(300, len(cdf) * 28), yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
 
-        display_cols = ["name", "type_label", "lines", "word_count", "section_count",
-                        "table_count", "code_block_count", "avg_line_length"]
+        display_cols = ["name", "type_label", "lines", "word_count", "section_count", "table_count", "code_block_count", "avg_line_length"]
         display_df = cdf[display_cols].rename(columns={
-            "name": "Name", "type_label": "Type", "lines": "Lines",
-            "word_count": "Words", "section_count": "Sections",
-            "table_count": "Table Rows", "code_block_count": "Code Blocks",
+            "name": "Name", "type_label": "Type", "lines": "Lines", "word_count": "Words",
+            "section_count": "Sections", "table_count": "Table Rows", "code_block_count": "Code Blocks",
             "avg_line_length": "Avg Line Len",
         }).sort_values("Words", ascending=False)
         display_df["Avg Line Len"] = display_df["Avg Line Len"].round(1)
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-    # LLM reviews
     if cached_analysis.llm_reviews:
-        st.subheader("LLM Reviews", help="AI-generated clarity scores and improvement suggestions for each config file. Run Config Analysis to generate.")
+        st.subheader("LLM Reviews", help="AI-generated clarity scores and improvement suggestions for each config file.")
 
         def _short_path(p: str) -> str:
             home = str(Path.home())
-            if p.startswith(home):
-                return "~" + p[len(home):]
-            return p
+            return "~" + p[len(home):] if p.startswith(home) else p
 
-        successful = {
-            p: r for p, r in cached_analysis.llm_reviews.items()
-            if r.clarity_score > 0
-        }
-        failed = {
-            p: r for p, r in cached_analysis.llm_reviews.items()
-            if r.clarity_score == 0
-        }
+        successful = {p: r for p, r in cached_analysis.llm_reviews.items() if r.clarity_score > 0}
+        failed = {p: r for p, r in cached_analysis.llm_reviews.items() if r.clarity_score == 0}
 
         for path, review in sorted(successful.items(), key=lambda x: x[1].clarity_score):
             name = _short_path(path)
@@ -472,5 +405,3 @@ def _render_config_analysis():
                 for path, review in sorted(failed.items()):
                     name = _short_path(path)
                     st.caption(f"`{name}` — {review.summary}")
-
-

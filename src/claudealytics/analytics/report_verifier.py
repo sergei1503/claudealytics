@@ -1,4 +1,4 @@
-"""Lightweight report verification: extract metrics from LLM markdown and compare against data_json."""
+"""Report verification against data_json."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from claudealytics.models.schemas import FullReport
 
 @dataclass
 class VerificationCheck:
-    """Single metric verification result."""
     metric: str
     report_value: float | None
     actual_value: float | None
@@ -20,7 +19,6 @@ class VerificationCheck:
 
 @dataclass
 class ReportVerification:
-    """Full verification result for a report."""
     checks: list[VerificationCheck] = field(default_factory=list)
     total_checked: int = 0
     total_matched: int = 0
@@ -35,11 +33,6 @@ class ReportVerification:
 
 
 def verify_report(report: FullReport) -> ReportVerification:
-    """Verify LLM report markdown against structured data_json.
-
-    Extracts ~10-15 key metrics from the markdown using regex and compares
-    against the actual values in data_json. Numbers within 5% are considered matching.
-    """
     if not report.report_markdown or not report.data_json:
         return ReportVerification()
 
@@ -47,7 +40,6 @@ def verify_report(report: FullReport) -> ReportVerification:
     data = report.data_json
     checks: list[VerificationCheck] = []
 
-    # ── Activity metrics ──
     activity = data.get("activity", {})
     if "total_sessions" in activity:
         checks.append(_check_number(md, "Total sessions", activity["total_sessions"],
@@ -64,13 +56,11 @@ def verify_report(report: FullReport) -> ReportVerification:
     if "top_model_by_cost" in activity:
         checks.append(_check_text(md, "Top model by cost", activity["top_model_by_cost"]))
 
-    # ── Token metrics ──
     tokens = data.get("tokens", {})
     if "avg_daily_7d" in tokens:
         checks.append(_check_number(md, "Avg daily tokens (7d)", tokens["avg_daily_7d"],
                                     [r"(?:average|avg)\s+daily\s+tokens[^:]*?:?\s*([\d,]+)"]))
 
-    # ── Cache metrics ──
     cache = data.get("cache", {})
     if "hit_rate" in cache:
         checks.append(_check_number(md, "Cache hit rate (%)", cache["hit_rate"],
@@ -78,7 +68,6 @@ def verify_report(report: FullReport) -> ReportVerification:
                                      r"([\d.]+)\s*%\s*cache\s+hit",
                                      r"([\d.]+)\s*%\s*hit\s+rate"]))
 
-    # ── Content metrics ──
     content = data.get("content", {})
     if "total_errors" in content:
         checks.append(_check_number(md, "Total errors", content["total_errors"],
@@ -89,7 +78,6 @@ def verify_report(report: FullReport) -> ReportVerification:
                                     [r"(\d[\d,]*)\s*sessions?\s+(?:analyzed|scanned)",
                                      r"(\d[\d,]*)\s*sessions"]))
 
-    # ── Agent/Skill counts ──
     as_data = data.get("agents_skills", {})
     if "unique_agents" in as_data:
         checks.append(_check_number(md, "Unique agents", as_data["unique_agents"],
@@ -102,7 +90,6 @@ def verify_report(report: FullReport) -> ReportVerification:
                                     [r"(\d[\d,]*)\s*(?:total\s+)?conversations?",
                                      r"(\d[\d,]*)\s*conversations"]))
 
-    # ── Optimization ──
     opt = data.get("optimization", {})
     if "unused_agents" in opt:
         checks.append(_check_number(md, "Unused agents", opt["unused_agents"],
@@ -111,7 +98,6 @@ def verify_report(report: FullReport) -> ReportVerification:
         checks.append(_check_number(md, "Unused skills", opt["unused_skills"],
                                     [r"(\d+)\s*unused\s+skills?"]))
 
-    # ── Config Health ──
     ch = data.get("config_health", {})
     if "health_score" in ch:
         checks.append(_check_number(md, "Config health score", ch["health_score"],
@@ -119,7 +105,6 @@ def verify_report(report: FullReport) -> ReportVerification:
                                      r"([\d]+)\s*/\s*100\s*health",
                                      r"score[:\s]*([\d]+)\s*/\s*100"]))
 
-    # Build result
     result = ReportVerification(checks=checks)
     result.total_checked = len([c for c in checks if c.report_value is not None])
     result.total_matched = len([c for c in checks if c.matches])
@@ -129,7 +114,6 @@ def verify_report(report: FullReport) -> ReportVerification:
 
 
 def _parse_number(text: str) -> float | None:
-    """Parse a number string, handling commas."""
     try:
         return float(text.replace(",", ""))
     except (ValueError, TypeError):
@@ -144,7 +128,6 @@ def _check_number(
     tolerance: float = 0.05,
     is_currency: bool = False,
 ) -> VerificationCheck:
-    """Extract a number from markdown and compare against actual value."""
     md_lower = markdown.lower()
     for pattern in patterns:
         match = re.search(pattern, md_lower)
@@ -155,12 +138,15 @@ def _check_number(
                     matches = report_val == 0
                 else:
                     matches = abs(report_val - actual) / max(abs(actual), 1) <= tolerance
+                diff = abs(report_val - actual)
+                pct = (diff / max(abs(actual), 1)) * 100
+                note = "" if matches else f"Off by {diff:.1f} ({pct:.0f}%)"
                 return VerificationCheck(
                     metric=metric_name,
                     report_value=report_val,
                     actual_value=actual,
                     matches=matches,
-                    note="" if matches else f"Off by {abs(report_val - actual):.1f} ({abs(report_val - actual) / max(abs(actual), 1) * 100:.0f}%)",
+                    note=note,
                 )
 
     return VerificationCheck(
@@ -173,8 +159,6 @@ def _check_number(
 
 
 def _check_text(markdown: str, metric_name: str, actual: str) -> VerificationCheck:
-    """Check if a text value appears in the markdown."""
-    # Check for the model name (partial match ok for model names)
     found = actual.lower() in markdown.lower()
     return VerificationCheck(
         metric=metric_name,

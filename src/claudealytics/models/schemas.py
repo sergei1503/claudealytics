@@ -1,12 +1,7 @@
-"""Pydantic models for Claude Code data structures."""
-
 from __future__ import annotations
 
 from datetime import datetime
 from pydantic import BaseModel, Field
-
-
-# ── Stats Cache Models ──────────────────────────────────────────────
 
 class DailyActivity(BaseModel):
     date: str
@@ -51,24 +46,20 @@ class StatsCache(BaseModel):
     hourCounts: dict[str, int] = Field(default_factory=dict)
     totalSpeculationTimeSavedMs: int = 0
 
-
-# ── Execution Log Models ────────────────────────────────────────────
-
 class AgentExecution(BaseModel):
     timestamp: str
     session_id: str = ""
     type: str = "agent"
-    agent_type: str = ""  # Standardized field name
-    agent: str = ""  # Keep for backward compatibility
-    prompt: str = ""  # Added for conversation data
+    agent_type: str = ""
+    agent: str = ""
+    prompt: str = ""
     description: str = ""
     outcome_preview: str = ""
-    status: str = "unknown"  # Added for tracking completion status
-    total_tokens: int = 0  # Added for token tracking
-    model: str = "unknown"  # Added for model tracking
+    status: str = "unknown"
+    total_tokens: int = 0
+    model: str = "unknown"
 
     def __init__(self, **data):
-        # Handle both field names for backward compatibility
         if "agent" in data and "agent_type" not in data:
             data["agent_type"] = data["agent"]
         elif "agent_type" in data and "agent" not in data:
@@ -80,34 +71,26 @@ class SkillExecution(BaseModel):
     timestamp: str
     session_id: str = ""
     type: str = "skill"
-    skill_name: str = ""  # Standardized field name
-    skill: str = ""  # Keep for backward compatibility
+    skill_name: str = ""
+    skill: str = ""
     args: str = ""
     outcome_preview: str = ""
-    status: str = "unknown"  # Added for tracking completion status
+    status: str = "unknown"
 
     def __init__(self, **data):
-        # Handle both field names for backward compatibility
         if "skill" in data and "skill_name" not in data:
             data["skill_name"] = data["skill"]
         elif "skill_name" in data and "skill" not in data:
             data["skill"] = data["skill_name"]
         super().__init__(**data)
 
-
-# ── Tool Usage Stats Models ─────────────────────────────────────────
-
 class ToolUsageStats(BaseModel):
-    """Aggregated statistics for tool usage - lightweight data structure."""
-    agents: dict[str, int] = Field(default_factory=dict)  # agent_name -> count
-    skills: dict[str, int] = Field(default_factory=dict)  # skill_name -> count
-    daily_agents: dict[str, dict[str, int]] = Field(default_factory=dict)  # date -> agent -> count
-    daily_skills: dict[str, dict[str, int]] = Field(default_factory=dict)  # date -> skill -> count
+    agents: dict[str, int] = Field(default_factory=dict)
+    skills: dict[str, int] = Field(default_factory=dict)
+    daily_agents: dict[str, dict[str, int]] = Field(default_factory=dict)
+    daily_skills: dict[str, dict[str, int]] = Field(default_factory=dict)
     total_conversations: int = 0
-    date_range: tuple[str, str] = ("", "")  # (earliest, latest)
-
-
-# ── Session Models ──────────────────────────────────────────────────
+    date_range: tuple[str, str] = ("", "")
 
 class SessionInfo(BaseModel):
     session_id: str
@@ -118,12 +101,9 @@ class SessionInfo(BaseModel):
     duration_minutes: float = 0.0
     message_count: int = 0
 
-
-# ── Scanner Models ──────────────────────────────────────────────────
-
 class ScanIssue(BaseModel):
-    severity: str  # "high", "medium", "low"
-    category: str  # "orphan", "missing", "inconsistency", "unused"
+    severity: str
+    category: str
     message: str
     file: str = ""
     suggestion: str = ""
@@ -157,19 +137,16 @@ class ScanReport(BaseModel):
     total_skills: int = 0
     total_claude_md_files: int = 0
 
-
-# ── Config Health Models ───────────────────────────────────────────
-
 class ConfigFileMetrics(BaseModel):
     path: str
-    file_type: str  # "global_claude_md", "project_claude_md", "agent", "skill"
+    file_type: str
     name: str
     lines: int
     bytes: int
 
 
 class ConfigSizeSnapshot(BaseModel):
-    timestamp: str  # ISO format
+    timestamp: str
     files: list[ConfigFileMetrics] = Field(default_factory=list)
     total_lines: int = 0
     total_bytes: int = 0
@@ -181,8 +158,8 @@ class ConfigSizeHistory(BaseModel):
 
 class ConfigQualityIssue(BaseModel):
     file_path: str
-    issue_type: str  # "missing_section", "broken_reference", "stale_entry", "missing_frontmatter"
-    severity: str  # "high", "medium", "low"
+    issue_type: str
+    severity: str
     message: str
     suggestion: str = ""
 
@@ -222,31 +199,20 @@ class UnmappedPreferences(BaseModel):
     dismissed_agents: list[str] = Field(default_factory=list)
     dismissed_skills: list[str] = Field(default_factory=list)
 
-
-# ── Tool Version Models ───────────────────────────────────────────
-
 class ToolVersionResult(BaseModel):
     name: str
     installed_version: str | None = None
     latest_version: str | None = None
-    status: str = "unknown"  # "up_to_date", "update_available", "not_installed", "unknown"
-
-
-# ── Content Mining Models ────────────────────────────────────────
+    status: str = "unknown"
 
 class ContentMineResult(BaseModel):
-    """Cached output from ContentMiner single-pass extraction."""
     session_stats: list[dict] = Field(default_factory=list)
     tool_calls: list[dict] = Field(default_factory=list)
     error_results: list[dict] = Field(default_factory=list)
     daily_stats: list[dict] = Field(default_factory=list)
     human_message_lengths: list[dict] = Field(default_factory=list)
 
-
-# ── Full Report Models ──────────────────────────────────────────
-
 class HealthSubScore(BaseModel):
-    """A single dimension of the composite health score."""
     name: str
     label: str
     score: int | None = None
@@ -255,7 +221,6 @@ class HealthSubScore(BaseModel):
 
 
 class HealthScoreResult(BaseModel):
-    """Composite platform health score with sub-scores."""
     overall_score: int = 0
     sub_scores: list[HealthSubScore] = Field(default_factory=list)
     active_count: int = 0
@@ -263,7 +228,6 @@ class HealthScoreResult(BaseModel):
 
 
 class FullReport(BaseModel):
-    """Result of LLM-generated full platform report."""
     timestamp: str
     report_markdown: str = ""
     data_summary: str = ""

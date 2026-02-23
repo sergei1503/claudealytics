@@ -1,5 +1,3 @@
-"""CLI entry point for claudealytics."""
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -55,37 +53,31 @@ def scan(
     from claudealytics.models.schemas import ScanReport
 
     with console.status("[bold green]Scanning infrastructure..."):
-        # Scan components
         agents = scan_agents()
         skills = scan_skills()
         claude_md_files, claude_md_issues = scan_claude_md_files()
 
-        # Parse execution logs for usage data
         log_agent_execs = parse_agent_executions()
         log_skill_execs = parse_skill_executions()
 
         if not no_conversations:
-            # Mine historical data from conversations
             console.print("[dim]Mining conversation archives for historical data...[/]")
             conv_stats = mine_tool_usage_stats(use_cache=True)
 
-            # Convert stats to lightweight execution objects for counting
             conv_agent_execs = [
                 {"timestamp": "", "session_id": "", "agent_type": agent_name, "prompt": "", "status": "unknown"}
                 for agent_name, count in conv_stats.agents.items()
-                for _ in range(min(count, 10))  # Cap at 10 per agent to avoid memory bloat
+                for _ in range(min(count, 10))
             ]
             conv_skill_execs = [
                 {"timestamp": "", "session_id": "", "skill_name": skill_name, "args": "", "status": "unknown"}
                 for skill_name, count in conv_stats.skills.items()
-                for _ in range(min(count, 10))  # Cap at 10 per skill to avoid memory bloat
+                for _ in range(min(count, 10))
             ]
 
-            # Merge data sources
             agent_execs = merge_agent_executions(log_agent_execs, conv_agent_execs)
             skill_execs = merge_skill_executions(log_skill_execs, conv_skill_execs)
 
-            # Use aggregated stats for counts (more accurate than capped objects)
             a_counts = conv_stats.agents
             s_counts = conv_stats.skills
         else:
@@ -94,36 +86,22 @@ def scan(
             a_counts = agent_usage_counts(agent_execs)
             s_counts = skill_usage_counts(skill_execs)
 
-        # Get last used times from actual executions
         a_last = agent_last_used(agent_execs)
         s_last = skill_last_used(skill_execs)
 
         for agent in agents:
-            # For conversation stats, a_counts is a dict directly
-            if isinstance(a_counts, dict):
-                agent.execution_count = a_counts.get(agent.name, 0)
-            else:
-                # For execution logs, a_counts is from usage_counts function
-                agent.execution_count = a_counts.get(agent.name, 0)
+            agent.execution_count = a_counts.get(agent.name, 0)
             agent.last_used = a_last.get(agent.name, "")
 
         for skill in skills:
-            # For conversation stats, s_counts is a dict directly
-            if isinstance(s_counts, dict):
-                skill.execution_count = s_counts.get(skill.name, 0)
-            else:
-                # For execution logs, s_counts is from usage_counts function
-                skill.execution_count = s_counts.get(skill.name, 0)
+            skill.execution_count = s_counts.get(skill.name, 0)
             skill.last_used = s_last.get(skill.name, "")
 
-        # Cross-reference routing tables
-        global_claude_md = Path.home() / ".claude" / "CLAUDE.md"
         xref_issues = []
+        global_claude_md = Path.home() / ".claude" / "CLAUDE.md"
         if global_claude_md.exists():
-            content = global_claude_md.read_text()
-            xref_issues = cross_reference(agents, skills, content)
+            xref_issues = cross_reference(agents, skills, global_claude_md.read_text())
 
-        # Detect unused agents/skills (defined but never executed)
         unused_issues = []
         for agent in agents:
             if agent.execution_count == 0:
@@ -137,7 +115,6 @@ def scan(
                     )
                 )
 
-        # Build report
         all_issues = claude_md_issues + xref_issues + unused_issues
         report = ScanReport(
             timestamp=datetime.now().isoformat(),
@@ -151,13 +128,14 @@ def scan(
 
         report_md = generate_report(report)
 
-    # Write report
     output.write_text(report_md)
     console.print(f"\n[bold green]✅ Scan complete![/]")
-    console.print(f"   Found [bold]{len(all_issues)}[/] issues ({len([i for i in all_issues if i.severity == 'high'])} high, {len([i for i in all_issues if i.severity == 'medium'])} medium, {len([i for i in all_issues if i.severity == 'low'])} low)")
+    high_ct = len([i for i in all_issues if i.severity == 'high'])
+    med_ct = len([i for i in all_issues if i.severity == 'medium'])
+    low_ct = len([i for i in all_issues if i.severity == 'low'])
+    console.print(f"   Found [bold]{len(all_issues)}[/] issues ({high_ct} high, {med_ct} medium, {low_ct} low)")
     console.print(f"   Report saved to: [bold]{output}[/]")
 
-    # Print summary table
     table = Table(title="Infrastructure Summary")
     table.add_column("Component", style="cyan")
     table.add_column("Count", justify="right", style="green")
@@ -178,7 +156,6 @@ def stats():
     with console.status("[bold green]Loading stats..."):
         stats_data = parse_stats_cache()
 
-    # Summary KPIs
     table = Table(title="Claude Code Usage Summary")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", justify="right", style="green")
@@ -190,7 +167,6 @@ def stats():
     table.add_row("Est. Total Cost", f"${total_estimated_cost(stats_data):,.2f}")
     console.print(table)
 
-    # Model breakdown
     model_table = Table(title="Token Usage by Model")
     model_table.add_column("Model", style="cyan")
     model_table.add_column("Input", justify="right")
@@ -227,20 +203,15 @@ def optimize(
 ):
     """Analyze Claude configuration for optimization opportunities."""
     from claudealytics.analytics.optimization_analyzer import generate_optimization_report
-    from rich.panel import Panel
 
     with console.status("[bold green]Analyzing configuration for optimizations..."):
         report = generate_optimization_report(include_conversations)
 
-        # Count issues by severity
-        critical_count = report.count("🚨 Critical")
-        quick_wins = report.count("⚡ Quick Win")
-        opportunities = report.count("💡 Opportunity")
+    critical_count = report.count("🚨 Critical")
+    quick_wins = report.count("⚡ Quick Win")
+    opportunities = report.count("💡 Opportunity")
 
-    # Write report
     output.write_text(report)
-
-    # Show summary in terminal
     console.print(Panel.fit(
         f"[bold green]✅ Optimization report generated[/bold green]\n"
         f"📄 Output: {output}\n"

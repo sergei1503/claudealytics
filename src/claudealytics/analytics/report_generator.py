@@ -1,4 +1,4 @@
-"""Full platform report generator: data summarization + Opus LLM synthesis."""
+"""Platform report generator with LLM synthesis."""
 
 from __future__ import annotations
 
@@ -23,15 +23,7 @@ def collect_platform_data(
     agent_execs: list,
     skill_execs: list,
 ) -> dict:
-    """Collect all platform data into a structured dict with exact numbers.
-
-    Pure Python — no LLM calls. Each section handles empty data gracefully.
-    Returns a dict with keys: activity, tokens, cache, content, agents_skills,
-    optimization, config_health.
-    """
     data: dict = {}
-
-    # ── 1. Activity Overview (from StatsCache) ──
     activity: dict = {}
     if stats:
         activity["total_sessions"] = stats.totalSessions
@@ -59,13 +51,11 @@ def collect_platform_data(
                 total_cost += usage.costUSD
             activity["model_usage"] = model_data
             activity["total_cost_usd"] = round(total_cost, 2)
-            # Top model by cost
             if model_data:
                 top_model = max(model_data.items(), key=lambda x: x[1]["cost_usd"])
                 activity["top_model_by_cost"] = top_model[0]
     data["activity"] = activity
 
-    # ── 2. Token Trends (from TokenMiner) ──
     tokens: dict = {}
     try:
         from claudealytics.analytics.parsers.token_miner import mine_daily_tokens
@@ -85,7 +75,6 @@ def collect_platform_data(
         pass
     data["tokens"] = tokens
 
-    # ── 3. Cache Performance ──
     cache: dict = {}
     try:
         from claudealytics.analytics.parsers.token_miner import mine_session_cache
@@ -111,7 +100,6 @@ def collect_platform_data(
         pass
     data["cache"] = cache
 
-    # ── 4. Session & Content Stats ──
     content_data: dict = {}
     try:
         from claudealytics.analytics.parsers.content_miner import mine_content
@@ -137,7 +125,6 @@ def collect_platform_data(
                 if "tool_name" in tc.columns:
                     content_data["top_tools"] = tc["tool_name"].value_counts().head(10).to_dict()
 
-            # Additional metrics for health score
             if "session_stats" in content and not content["session_stats"].empty:
                 ss = content["session_stats"]
                 for col in ("writes_total_count", "writes_with_prior_read_count",
@@ -151,7 +138,6 @@ def collect_platform_data(
         pass
     data["content"] = content_data
 
-    # ── 5. Agent & Skill Usage ──
     agents_skills: dict = {}
     try:
         from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
@@ -159,7 +145,6 @@ def collect_platform_data(
         tool_stats = mine_tool_usage_stats(use_cache=True)
 
         if tool_stats.agents:
-            # Merge name variants (e.g. "k8s-log-checker" + "K8s Log Checker" → single entry)
             canon = build_canonical_map(list(tool_stats.agents.keys()))
             merged_agents: dict[str, int] = {}
             for name, count in tool_stats.agents.items():
@@ -186,7 +171,6 @@ def collect_platform_data(
         pass
     data["agents_skills"] = agents_skills
 
-    # ── 6. Optimization Issues ──
     optimization: dict = {}
     try:
         from claudealytics.scanner.agent_scanner import scan_agents
@@ -216,7 +200,6 @@ def collect_platform_data(
         pass
     data["optimization"] = optimization
 
-    # ── 7. Config Health (cached analysis if available) ──
     config_health: dict = {}
     try:
         from claudealytics.analytics.config_analyzer import load_cached_analysis
@@ -250,15 +233,9 @@ def summarize_platform_data(
     agent_execs: list,
     skill_execs: list,
 ) -> str:
-    """Collect and summarize all platform data into a text digest (~2000-4000 words).
-
-    Pure Python — no LLM calls. Each section handles empty data gracefully.
-    Delegates to collect_platform_data() for numbers, then formats as text.
-    """
     data = collect_platform_data(stats, agent_execs, skill_execs)
     sections: list[str] = []
 
-    # ── 1. Activity Overview ──
     section = ["## Activity Overview"]
     activity = data.get("activity", {})
     if activity:
@@ -291,7 +268,6 @@ def summarize_platform_data(
         section.append("No stats data available.")
     sections.append("\n".join(section))
 
-    # ── 2. Token Trends ──
     section = ["## Token Trends"]
     tokens = data.get("tokens", {})
     if tokens.get("by_model"):
@@ -304,7 +280,6 @@ def summarize_platform_data(
         section.append("No token data available.")
     sections.append("\n".join(section))
 
-    # ── 3. Cache Performance ──
     section = ["## Cache Performance"]
     cache = data.get("cache", {})
     if "hit_rate" in cache:
@@ -318,7 +293,6 @@ def summarize_platform_data(
         section.append("No cache data available.")
     sections.append("\n".join(section))
 
-    # ── 4. Session & Content Stats ──
     section = ["## Session & Content Statistics"]
     content = data.get("content", {})
     if content:
@@ -340,7 +314,6 @@ def summarize_platform_data(
         section.append("No content data available.")
     sections.append("\n".join(section))
 
-    # ── 5. Agent & Skill Usage ──
     section = ["## Agent & Skill Ecosystem"]
     as_data = data.get("agents_skills", {})
     if as_data.get("agents"):
@@ -367,7 +340,6 @@ def summarize_platform_data(
         section.append(f"- Date range: {as_data['date_range'][0]} to {as_data['date_range'][1]}")
     sections.append("\n".join(section))
 
-    # ── 6. Optimization Issues ──
     section = ["## Optimization Analysis"]
     opt = data.get("optimization", {})
     if opt:
@@ -383,7 +355,6 @@ def summarize_platform_data(
         section.append("Optimization data could not be loaded.")
     sections.append("\n".join(section))
 
-    # ── 7. Config Health ──
     section = ["## Configuration Health"]
     ch = data.get("config_health", {})
     if ch:
@@ -401,7 +372,6 @@ def summarize_platform_data(
         section.append("No config analysis available (run Config Analysis to populate).")
     sections.append("\n".join(section))
 
-    # ── 8. Composite Health Score ──
     section = ["## Composite Platform Health Score"]
     try:
         from claudealytics.analytics.aggregators.health_score_aggregator import compute_health_score
@@ -422,17 +392,12 @@ def export_platform_json(
     agent_execs: list,
     skill_execs: list,
 ) -> dict:
-    """Export structured platform data as a JSON-serializable dict.
-
-    Convenience wrapper around collect_platform_data() for CLI and API use.
-    """
     return collect_platform_data(stats, agent_execs, skill_execs)
 
 
 def _ensure_config_analysis(
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> None:
-    """Run config analysis if no cached result exists, so the full report includes it."""
     try:
         from claudealytics.analytics.config_analyzer import load_cached_analysis, run_full_analysis
         cached = load_cached_analysis()
@@ -441,13 +406,12 @@ def _ensure_config_analysis(
                 progress_callback(0.06, "Running config analysis (first time)...")
 
             def _config_progress(pct, text):
-                # Map config analysis progress (0-1) into our 0.06-0.14 range
                 if progress_callback:
                     progress_callback(0.06 + pct * 0.08, f"Config analysis: {text}")
 
             run_full_analysis(progress_callback=_config_progress)
     except Exception:
-        pass  # Non-critical — report will just have empty config health section
+        pass
 
 
 def generate_full_report(
@@ -456,10 +420,6 @@ def generate_full_report(
     skill_execs: list,
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> FullReport:
-    """Generate a comprehensive platform report using Opus LLM synthesis.
-
-    Collects all platform data, then sends to claude CLI for structured analysis.
-    """
     import shutil
 
     start = time.time()
@@ -468,7 +428,6 @@ def generate_full_report(
     if progress_callback:
         progress_callback(0.05, "Checking config analysis...")
 
-    # Ensure config analysis is available before collecting data
     _ensure_config_analysis(progress_callback)
 
     if progress_callback:
@@ -480,7 +439,6 @@ def generate_full_report(
     if progress_callback:
         progress_callback(0.25, "Data collected. Generating report with Opus...")
 
-    # Check claude CLI availability
     if not shutil.which("claude"):
         return FullReport(
             timestamp=timestamp,
@@ -578,11 +536,8 @@ def generate_full_report(
     if progress_callback:
         progress_callback(0.95, "Saving report...")
 
-    # Cache result
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_CACHE.write_text(report.model_dump_json(indent=2))
-
-    # Save timestamped snapshot
     _save_report_snapshot(report)
 
     if progress_callback:
@@ -592,7 +547,6 @@ def generate_full_report(
 
 
 def _save_report_snapshot(report: FullReport) -> Path | None:
-    """Save a timestamped snapshot of the report to the reports directory."""
     try:
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M%S")
@@ -604,7 +558,6 @@ def _save_report_snapshot(report: FullReport) -> Path | None:
 
 
 def load_cached_report() -> FullReport | None:
-    """Load cached full report from disk, or None if not available."""
     if not REPORT_CACHE.exists():
         return None
     try:
@@ -615,16 +568,11 @@ def load_cached_report() -> FullReport | None:
 
 
 def list_report_snapshots() -> list[dict]:
-    """List saved report snapshots, sorted newest first.
-
-    Returns list of dicts with keys: path, filename, timestamp.
-    """
     if not REPORTS_DIR.exists():
         return []
     snapshots = []
     for f in sorted(REPORTS_DIR.glob("report-*.json"), reverse=True):
-        # Extract timestamp from filename: report-YYYY-MM-DD-HHMMSS.json
-        name = f.stem  # report-2026-02-22-143000
+        name = f.stem
         ts_part = name.replace("report-", "")
         snapshots.append({
             "path": str(f),
@@ -635,7 +583,6 @@ def list_report_snapshots() -> list[dict]:
 
 
 def load_report_snapshot(path: str) -> FullReport | None:
-    """Load a specific report snapshot from disk."""
     try:
         data = json.loads(Path(path).read_text())
         return FullReport.model_validate(data)
