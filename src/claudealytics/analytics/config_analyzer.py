@@ -128,7 +128,7 @@ def analyze_quality(files: list[tuple[Path, str]]) -> list[ConfigQualityIssue]:
                 issues.append(ConfigQualityIssue(
                     file_path=path_str,
                     issue_type="missing_frontmatter",
-                    severity="high",
+                    severity="medium",
                     message="Cannot parse YAML frontmatter",
                     suggestion="Ensure the file starts with valid --- YAML --- frontmatter",
                 ))
@@ -138,7 +138,7 @@ def analyze_quality(files: list[tuple[Path, str]]) -> list[ConfigQualityIssue]:
                         issues.append(ConfigQualityIssue(
                             file_path=path_str,
                             issue_type="missing_frontmatter",
-                            severity="medium",
+                            severity="low",
                             message=f"Agent missing '{field}' in frontmatter",
                             suggestion=f"Add '{field}' to the YAML frontmatter",
                         ))
@@ -150,7 +150,7 @@ def analyze_quality(files: list[tuple[Path, str]]) -> list[ConfigQualityIssue]:
                 issues.append(ConfigQualityIssue(
                     file_path=path_str,
                     issue_type="missing_frontmatter",
-                    severity="high",
+                    severity="medium",
                     message="Cannot parse YAML frontmatter",
                     suggestion="Ensure the file starts with valid --- YAML --- frontmatter",
                 ))

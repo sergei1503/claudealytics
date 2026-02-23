@@ -23,6 +23,30 @@ claudealytics dashboard
 - **Agent & skill tracking** — usage frequency, trends, inventory, unmapped detection
 - **Config health** — file sizes, growth history, quality issues
 
+## From Insight to Action
+
+The report doesn't just show numbers — it surfaces concrete improvements you can make to your Claude Code setup. Here are real examples of changes driven by Claudealytics findings:
+
+| Insight | What Changed |
+|---------|-------------|
+| 4 agent files had broken YAML frontmatter | Fixed frontmatter format so the parser reads them correctly |
+| "Missing name/description" flagged as medium severity | Downgraded to low — agents work fine without these cosmetic fields |
+| 11 unused agents/skills adding context overhead | Identified candidates for removal, reducing prompt bloat |
+| 79% read-before-write discipline (target: 90%+) | Highlighted sessions where blind writes happen — focus area for workflow improvement |
+| Config health score formula was too harsh | Rebalanced to blend issue severity with LLM clarity scores (50/50) |
+| Top model by cost missing from report | Added fallback to derive model costs from mined JSONL data when stats-cache is incomplete |
+
+The **Platform Health Score** (8 sub-scores, weighted composite) gives you a single number to track over time. Each sub-score links to a specific lever:
+
+- **Cache Efficiency** — if low, check for cache-busting patterns in long sessions
+- **Error Rate** — surface the top error types and which tools fail most
+- **Read Before Write** — catch blind overwrites before they cause bugs
+- **Token Efficiency** — flag sessions with unusually high output ratios
+- **Model Balance** — identify tasks that could shift from Opus to Haiku
+- **Config Health** — find broken references, unused configs, and stale instructions
+- **Autonomy** — measure how often Claude works independently vs. needing guidance
+- **Agent Utilization** — prune unused agents that add overhead without value
+
 ## Screenshots
 
 <table>

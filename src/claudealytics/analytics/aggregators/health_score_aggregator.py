@@ -44,6 +44,17 @@ def _score_error_rate(data: dict) -> HealthSubScore:
 
 def _score_read_before_write(data: dict) -> HealthSubScore:
     content = data.get("content", {})
+
+    # Prefer 7-day recent data
+    recent_pct = content.get("recent_rbw_pct")
+    if recent_pct is not None:
+        return HealthSubScore(
+            name="read_before_write", label="Read Before Write",
+            score=_clamp(recent_pct), weight=0.15,
+            explanation=f"{recent_pct:.0f}% preceded by read (7-day)",
+        )
+
+    # Fall back to all-time
     writes_total = content.get("writes_total_count")
     writes_with_read = content.get("writes_with_prior_read_count")
     if writes_total is None or writes_total == 0:
@@ -58,14 +69,10 @@ def _score_read_before_write(data: dict) -> HealthSubScore:
 
 
 def _score_token_efficiency(data: dict) -> HealthSubScore:
-    activity = data.get("activity", {})
-    model_usage = activity.get("model_usage", {})
-    if not model_usage:
-        return HealthSubScore(name="token_efficiency", label="Token Efficiency", weight=0.10)
-
-    total_input = sum(m.get("input_tokens", 0) + m.get("cache_read_tokens", 0) for m in model_usage.values())
-    total_output = sum(m.get("output_tokens", 0) for m in model_usage.values())
-    if total_input == 0:
+    tokens = data.get("tokens", {})
+    total_input = tokens.get("total_input", 0)
+    total_output = tokens.get("total_output", 0)
+    if total_input == 0 or total_output == 0:
         return HealthSubScore(name="token_efficiency", label="Token Efficiency", weight=0.10)
 
     ratio = total_output / total_input
@@ -83,18 +90,16 @@ def _score_token_efficiency(data: dict) -> HealthSubScore:
 
 
 def _score_model_balance(data: dict) -> HealthSubScore:
-    activity = data.get("activity", {})
-    model_usage = activity.get("model_usage", {})
-    if not model_usage:
+    by_model = data.get("tokens", {}).get("by_model", {})
+    if not by_model:
         return HealthSubScore(name="model_balance", label="Model Balance", weight=0.10)
 
-    total_tokens = sum(m.get("total_tokens", 0) for m in model_usage.values())
+    total_tokens = sum(by_model.values())
     if total_tokens == 0:
         return HealthSubScore(name="model_balance", label="Model Balance", weight=0.10)
 
     opus_tokens = sonnet_tokens = haiku_tokens = 0
-    for model, usage in model_usage.items():
-        t = usage.get("total_tokens", 0)
+    for model, t in by_model.items():
         ml = model.lower()
         if "opus" in ml:
             opus_tokens += t
@@ -109,90 +114,97 @@ def _score_model_balance(data: dict) -> HealthSubScore:
 
     models_used = sum(1 for p in [opus_pct, sonnet_pct, haiku_pct] if p > 0.01)
     if models_used == 1:
-        score = 40
+        score = 55
     elif models_used == 2:
-        score = 70
+        score = 75
     else:
-        score = 85
+        score = 90
 
     if haiku_pct > 0.05:
-        score = min(100, score + 15)
-
-    max_pct = max(opus_pct, sonnet_pct, haiku_pct)
-    if max_pct > 0.90:
-        score = min(score, 30)
+        score = min(100, score + 10)
 
     premium_pct = (opus_tokens + sonnet_tokens) / total_tokens * 100
     return HealthSubScore(
         name="model_balance", label="Model Balance",
         score=_clamp(score), weight=0.10,
-        explanation=f"{premium_pct:.0f}% on premium models",
+        explanation=f"{models_used} model{'s' if models_used != 1 else ''}, {premium_pct:.0f}% premium",
     )
 
 
 def _score_config_health(data: dict) -> HealthSubScore:
     ch = data.get("config_health", {})
-    health = ch.get("health_score")
-    if health is None:
+    high = ch.get("issues_high")
+    if high is None:
         return HealthSubScore(
             name="config_health", label="Config Health", weight=0.10,
             explanation="Run analysis to enable",
         )
+
+    medium = ch.get("issues_medium", 0)
+    low = ch.get("issues_low", 0)
+    clarity = ch.get("avg_clarity_score")
+
+    # Gentler issue penalty: high=10, medium=3, low=1
+    issue_score = max(0, 100 - high * 10 - medium * 3 - low * 1)
+
+    if clarity is not None:
+        # Blend: 50% issue penalty + 50% clarity
+        score = 0.5 * issue_score + 0.5 * clarity
+        explanation = f"{high} high, {medium} medium issues; clarity {clarity}/100"
+    else:
+        score = issue_score
+        explanation = f"{high} high, {medium} medium issues"
+
     return HealthSubScore(
         name="config_health", label="Config Health",
-        score=_clamp(health), weight=0.10,
-        explanation=f"{ch.get('issues_high', 0)} high, {ch.get('issues_medium', 0)} medium issues",
+        score=_clamp(score), weight=0.10,
+        explanation=explanation,
     )
 
 
 def _score_autonomy(data: dict) -> HealthSubScore:
     content = data.get("content", {})
-    avg_run = content.get("avg_autonomy_run_length")
-    if avg_run is None:
-        return HealthSubScore(name="autonomy", label="Autonomy & Efficiency", weight=0.10)
+    ratio = content.get("recent_autonomy_ratio")
+    if ratio is None:
+        # Fall back to all-time avg_autonomy_run_length
+        avg_run = content.get("avg_autonomy_run_length")
+        if avg_run is None:
+            return HealthSubScore(name="autonomy", label="Autonomy & Efficiency", weight=0.10)
+        score = _clamp((avg_run / 6) * 100)
+        return HealthSubScore(
+            name="autonomy", label="Autonomy & Efficiency",
+            score=score, weight=0.10,
+            explanation=f"{avg_run:.1f} msgs between interventions",
+        )
 
-    run_score = _clamp((avg_run / 6) * 100)
-
-    total_interventions = (
-        content.get("intervention_correction", 0)
-        + content.get("intervention_approval", 0)
-        + content.get("intervention_guidance", 0)
-        + content.get("intervention_new_instruction", 0)
-    )
-    corrections = content.get("intervention_correction", 0)
-    if total_interventions > 0:
-        correction_pct = corrections / total_interventions
-        correction_penalty = correction_pct * 30
-        run_score = _clamp(run_score - correction_penalty)
-
+    # ratio is 0-1 (assistant_msgs / total_msgs), score as percentage
+    score = _clamp(ratio * 100)
     return HealthSubScore(
         name="autonomy", label="Autonomy & Efficiency",
-        score=run_score, weight=0.10,
-        explanation=f"{avg_run:.1f} msgs between interventions",
+        score=score, weight=0.10,
+        explanation=f"{ratio:.0%} autonomy ratio (7-day avg)",
     )
 
 
 def _score_agent_utilization(data: dict) -> HealthSubScore:
-    as_data = data.get("agents_skills", {})
     opt = data.get("optimization", {})
 
-    used_agents = as_data.get("unique_agents", 0)
-    used_skills = as_data.get("unique_skills", 0)
+    total_defined_agents = opt.get("total_defined_agents", 0)
+    total_defined_skills = opt.get("total_defined_skills", 0)
     unused_agents = opt.get("unused_agents", 0)
     unused_skills = opt.get("unused_skills", 0)
 
-    total_defined = (used_agents + unused_agents) + (used_skills + unused_skills)
-    total_used = used_agents + used_skills
-
+    total_defined = total_defined_agents + total_defined_skills
     if total_defined == 0:
         return HealthSubScore(name="agent_utilization", label="Agent & Skill Utilization", weight=0.10)
 
-    pct = (total_used / total_defined) * 100
     unused_count = unused_agents + unused_skills
+    used_count = total_defined - unused_count
+    pct = (used_count / total_defined) * 100
     return HealthSubScore(
         name="agent_utilization", label="Agent & Skill Utilization",
         score=_clamp(pct), weight=0.10,
-        explanation=f"{unused_count} unused" if unused_count > 0 else "All in use",
+        explanation=f"{used_count}/{total_defined} in use ({unused_count} unused)",
     )
 
 

@@ -86,6 +86,7 @@ def _render_full_report(stats, agent_execs, skill_execs):
             st.error(f"Report generation failed: {result.error}")
         else:
             st.success("Report generated successfully!")
+            st.rerun()
 
     report = st.session_state.full_report_result
     if not report:

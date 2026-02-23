@@ -61,19 +61,50 @@ def collect_platform_data(
         from claudealytics.analytics.parsers.token_miner import mine_daily_tokens
         token_df = mine_daily_tokens(use_cache=True)
         if not token_df.empty and "date" in token_df.columns:
-            model_cols = [c for c in token_df.columns if c != "date"]
-            by_model = {}
-            for col in model_cols:
-                by_model[col] = int(token_df[col].sum())
-            tokens["by_model"] = by_model
-            tokens["total"] = sum(by_model.values())
+            # Build by_model: model_name -> total tokens from mined data
+            if "model" in token_df.columns:
+                token_cols = [c for c in ["input_tokens", "output_tokens", "cache_read_input_tokens",
+                                          "cache_creation_input_tokens"] if c in token_df.columns]
+                model_totals = token_df.groupby("model")[token_cols].sum()
+                by_model = {}
+                for model_name in model_totals.index:
+                    by_model[model_name] = int(model_totals.loc[model_name].sum())
+                tokens["by_model"] = by_model
+                tokens["total"] = sum(by_model.values())
 
-            recent = token_df.tail(7)
-            daily_totals = recent[model_cols].sum(axis=1)
-            tokens["avg_daily_7d"] = int(daily_totals.mean())
+                recent_dates = token_df["date"].drop_duplicates().nlargest(7)
+                recent = token_df[token_df["date"].isin(recent_dates)]
+                if token_cols:
+                    daily_totals = recent.groupby("date")[token_cols].sum().sum(axis=1)
+                    tokens["avg_daily_7d"] = int(daily_totals.mean()) if not daily_totals.empty else 0
+
+            if "input_tokens" in token_df.columns and "output_tokens" in token_df.columns:
+                tokens["total_input"] = int(token_df["input_tokens"].sum())
+                tokens["total_output"] = int(token_df["output_tokens"].sum())
     except Exception:
         pass
     data["tokens"] = tokens
+
+    # Enrich activity with mined data when stats-cache is incomplete
+    if tokens.get("by_model") and not activity.get("top_model_by_cost"):
+        try:
+            from claudealytics.analytics.cost_calculator import _get_pricing
+            model_costs: dict[str, float] = {}
+            for model_name, total_tokens in tokens["by_model"].items():
+                pricing = _get_pricing(model_name)
+                # Approximate: split tokens 50/50 input/output
+                avg_price = (pricing["input"] + pricing["output"]) / 2
+                model_costs[model_name] = (total_tokens / 1_000_000) * avg_price
+            if model_costs:
+                activity["top_model_by_cost"] = max(model_costs, key=model_costs.get)
+                if not activity.get("model_usage"):
+                    activity["model_usage"] = {
+                        m: {"total_tokens": tokens["by_model"][m], "cost_usd": round(c, 2)}
+                        for m, c in sorted(model_costs.items(), key=lambda x: x[1], reverse=True)
+                    }
+                    activity["total_cost_usd"] = round(sum(model_costs.values()), 2)
+        except Exception:
+            pass
 
     cache: dict = {}
     try:
@@ -82,10 +113,12 @@ def collect_platform_data(
         session_df = mine_session_cache(use_cache=True)
         if not session_df.empty:
             total_input = int(session_df["input_tokens"].sum()) if "input_tokens" in session_df.columns else 0
-            total_cache = int(session_df["cache_read_tokens"].sum()) if "cache_read_tokens" in session_df.columns else 0
+            total_cache = int(session_df["cache_read_input_tokens"].sum()) if "cache_read_input_tokens" in session_df.columns else 0
+            total_creation = int(session_df["cache_creation_input_tokens"].sum()) if "cache_creation_input_tokens" in session_df.columns else 0
             cache["total_input_tokens"] = total_input
             cache["total_cache_read"] = total_cache
-            cache["hit_rate"] = round((total_cache / max(total_input + total_cache, 1)) * 100, 1)
+            cache["total_cache_creation"] = total_creation
+            cache["hit_rate"] = round((total_cache / max(total_input + total_cache + total_creation, 1)) * 100, 1)
 
             try:
                 proj_df = project_cache_summary(session_df)
@@ -134,6 +167,24 @@ def collect_platform_data(
                         content_data[col] = int(ss[col].sum())
                 if "avg_autonomy_run_length" in ss.columns:
                     content_data["avg_autonomy_run_length"] = round(float(ss["avg_autonomy_run_length"].mean()), 2)
+
+                # 7-day recent metrics for health scoring
+                if "date" in ss.columns:
+                    import pandas as pd
+                    recent_cutoff = pd.Timestamp.now() - pd.Timedelta(days=7)
+                    recent_ss = ss[ss["date"] >= recent_cutoff]
+                    if not recent_ss.empty:
+                        # Autonomy ratio: assistant_msgs / total_msgs per session, averaged
+                        if "human_msg_count" in recent_ss.columns and "assistant_msg_count" in recent_ss.columns:
+                            total_msgs = recent_ss["human_msg_count"] + recent_ss["assistant_msg_count"]
+                            ratios = (recent_ss["assistant_msg_count"] / total_msgs).where(total_msgs > 0, 0)
+                            content_data["recent_autonomy_ratio"] = round(float(ratios.mean()), 3)
+                        # Read-before-write percentage
+                        if "writes_total_count" in recent_ss.columns and "writes_with_prior_read_count" in recent_ss.columns:
+                            recent_writes = int(recent_ss["writes_total_count"].sum())
+                            recent_rbw = int(recent_ss["writes_with_prior_read_count"].sum())
+                            if recent_writes > 0:
+                                content_data["recent_rbw_pct"] = round(recent_rbw / recent_writes * 100, 1)
     except Exception:
         pass
     data["content"] = content_data
@@ -190,6 +241,8 @@ def collect_platform_data(
         duplicates = analyze_duplicate_guidance(claude_md_files)
         efficiency = analyze_agent_efficiency(agent_execs)
 
+        optimization["total_defined_agents"] = len(agents)
+        optimization["total_defined_skills"] = len(skills)
         optimization["unused_agents"] = len(unused_agents)
         optimization["unused_agents_list"] = [issue.title for issue in unused_agents[:10]]
         optimization["unused_skills"] = len(unused_skills)
@@ -209,7 +262,16 @@ def collect_platform_data(
             high = sum(1 for i in all_issues if i.severity == "high")
             medium = sum(1 for i in all_issues if i.severity == "medium")
             low = sum(1 for i in all_issues if i.severity == "low")
-            health = max(0, 100 - high * 15 - medium * 5 - low * 1)
+            issue_score = max(0, 100 - high * 10 - medium * 3 - low * 1)
+            avg_clarity = None
+            if analysis.llm_reviews:
+                scores = [r.clarity_score for r in analysis.llm_reviews.values() if r.clarity_score > 0]
+                if scores:
+                    avg_clarity = round(sum(scores) / len(scores))
+            if avg_clarity is not None:
+                health = round(0.5 * issue_score + 0.5 * avg_clarity)
+            else:
+                health = issue_score
             config_health["health_score"] = health
             config_health["issues_high"] = high
             config_health["issues_medium"] = medium
