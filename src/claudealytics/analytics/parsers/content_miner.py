@@ -339,10 +339,6 @@ class ContentMiner:
 
                         # ── USER MESSAGE ──
                         if line_type == "user":
-                            s["human_msg_count"] += 1
-                            d["human_messages"] += 1
-                            session_msg_roles[session_id].append("user")
-
                             # Extract text from content blocks
                             text_parts = []
                             has_tool_result = False
@@ -372,6 +368,15 @@ class ContentMiner:
                             full_text = " ".join(text_parts)
                             text_length = len(full_text)
                             word_count = len(full_text.split()) if full_text.strip() else 0
+
+                            # Only count as human message if there's actual user text
+                            # (tool_result-only messages are system-generated, not human)
+                            is_human_message = bool(full_text.strip()) or not has_tool_result
+
+                            if is_human_message:
+                                s["human_msg_count"] += 1
+                                d["human_messages"] += 1
+                                session_msg_roles[session_id].append("user")
 
                             s["total_text_length_human"] += text_length
                             d["total_text_length_human"] += text_length
