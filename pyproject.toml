@@ -48,6 +48,7 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "--import-mode=importlib"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claudealytics"]

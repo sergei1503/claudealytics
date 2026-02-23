@@ -21,6 +21,8 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --extra test --python ${{ matrix.python-version }}
+      - name: Verify package is importable
+        run: uv run --python ${{ matrix.python-version }} python -c "import claudealytics; print('OK')"
       - name: Run tests
         run: uv run --python ${{ matrix.python-version }} pytest -v
 
