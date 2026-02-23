@@ -16,7 +16,7 @@ Analytics dashboard for Claude Code power users. Mine your local conversation hi
 ## Quick Start
 
 ```bash
-pip install claudealytics
+pip install git+https://github.com/sergei1503/claudealytics.git
 claudealytics dashboard
 ```
 
