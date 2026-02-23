@@ -33,8 +33,8 @@ def compute_error_timeline(daily_stats: pd.DataFrame) -> pd.DataFrame:
     df = daily_stats[[c for c in cols if c in daily_stats.columns]].copy()
     if "total_tool_calls" in df.columns:
         df["error_rate"] = (
-            df["total_errors"] / df["total_tool_calls"] * 100
-        ).where(df["total_tool_calls"] > 0, 0).round(2)
+            (df["total_errors"] / df["total_tool_calls"] * 100).where(df["total_tool_calls"] > 0, 0).round(2)
+        )
     else:
         df["error_rate"] = 0.0
     return df
@@ -49,8 +49,7 @@ def compute_error_sessions(session_stats: pd.DataFrame, top_n: int = 20) -> pd.D
     if df.empty:
         return pd.DataFrame()
 
-    cols = ["session_id", "date", "project", "total_errors",
-            "total_tool_calls", "total_messages", "unique_tools"]
+    cols = ["session_id", "date", "project", "total_errors", "total_tool_calls", "total_messages", "unique_tools"]
     df = df[[c for c in cols if c in df.columns]]
     df = df.sort_values("total_errors", ascending=False).head(top_n)
     return df.reset_index(drop=True)

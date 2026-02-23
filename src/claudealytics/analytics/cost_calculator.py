@@ -43,14 +43,16 @@ def estimate_model_costs(stats: StatsCache) -> pd.DataFrame:
         cache_read_cost = (usage.cacheReadInputTokens / 1_000_000) * pricing["input"] * 0.1
         cache_creation_cost = (usage.cacheCreationInputTokens / 1_000_000) * pricing["input"] * 1.25
 
-        rows.append({
-            "model": model,
-            "input_cost": round(input_cost, 2),
-            "output_cost": round(output_cost, 2),
-            "cache_read_cost": round(cache_read_cost, 2),
-            "cache_creation_cost": round(cache_creation_cost, 2),
-            "total_cost": round(input_cost + output_cost + cache_read_cost + cache_creation_cost, 2),
-        })
+        rows.append(
+            {
+                "model": model,
+                "input_cost": round(input_cost, 2),
+                "output_cost": round(output_cost, 2),
+                "cache_read_cost": round(cache_read_cost, 2),
+                "cache_creation_cost": round(cache_creation_cost, 2),
+                "total_cost": round(input_cost + output_cost + cache_read_cost + cache_creation_cost, 2),
+            }
+        )
 
     if not rows:
         return pd.DataFrame()

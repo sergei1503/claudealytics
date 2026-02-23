@@ -63,9 +63,7 @@ def compute_library_timeline(tool_calls: pd.DataFrame) -> pd.DataFrame:
     return result.sort_values("date").reset_index(drop=True)
 
 
-def compute_library_by_project(
-    tool_calls: pd.DataFrame, session_stats: pd.DataFrame
-) -> pd.DataFrame:
+def compute_library_by_project(tool_calls: pd.DataFrame, session_stats: pd.DataFrame) -> pd.DataFrame:
     """Unique packages installed per project.
 
     Returns DF: project, packages (comma-separated), install_count
@@ -96,9 +94,13 @@ def compute_library_by_project(
         return pd.DataFrame(columns=["project", "packages", "install_count"])
 
     pkg_df = pd.DataFrame(rows)
-    result = pkg_df.groupby("project").agg(
-        packages=("package", lambda x: ", ".join(sorted(set(x)))),
-        install_count=("package", "size"),
-    ).reset_index()
+    result = (
+        pkg_df.groupby("project")
+        .agg(
+            packages=("package", lambda x: ", ".join(sorted(set(x)))),
+            install_count=("package", "size"),
+        )
+        .reset_index()
+    )
 
     return result.sort_values("install_count", ascending=False).reset_index(drop=True)

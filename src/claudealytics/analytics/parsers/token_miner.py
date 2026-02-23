@@ -9,11 +9,9 @@ Uses file-level caching with 1-hour TTL to avoid re-parsing on repeated runs.
 """
 
 import json
-import os
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -23,13 +21,13 @@ class TokenMiner:
 
     CACHE_TTL_SECONDS = 3600  # 1 hour
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Path | None = None):
         self.projects_dir = Path.home() / ".claude" / "projects"
         self.cache_dir = cache_dir or Path.home() / ".cache" / "claudealytics"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_path = self.cache_dir / "token-mine.json"
 
-    def _get_all_jsonl_files(self) -> List[Path]:
+    def _get_all_jsonl_files(self) -> list[Path]:
         """Get ALL JSONL files recursively, including agent-*.jsonl in subdirs."""
         if not self.projects_dir.exists():
             return []
@@ -41,7 +39,7 @@ class TokenMiner:
 
         return sorted(files, key=lambda f: f.stat().st_mtime)
 
-    def _load_cache(self) -> Optional[Dict]:
+    def _load_cache(self) -> dict | None:
         """Load cached results if fresh enough."""
         if not self.cache_path.exists():
             return None
@@ -54,7 +52,7 @@ class TokenMiner:
             pass
         return None
 
-    def _save_cache(self, data: Dict):
+    def _save_cache(self, data: dict):
         """Save results to cache."""
         cache_data = {
             "timestamp": datetime.now().timestamp(),
@@ -76,10 +74,21 @@ class TokenMiner:
                     df = pd.DataFrame(rows)
                     df["date"] = pd.to_datetime(df["date"])
                     return df.sort_values("date")
-                return pd.DataFrame(columns=["date", "model", "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens"])
+                return pd.DataFrame(
+                    columns=[
+                        "date",
+                        "model",
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_read_input_tokens",
+                        "cache_creation_input_tokens",
+                        "ephemeral_1h_input_tokens",
+                        "ephemeral_5m_input_tokens",
+                    ]
+                )
 
         # Aggregate: (date, model) -> token counts
-        agg: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(
+        agg: dict[tuple[str, str], dict[str, int]] = defaultdict(
             lambda: {
                 "input_tokens": 0,
                 "output_tokens": 0,
@@ -137,7 +146,7 @@ class TokenMiner:
 
                         except (json.JSONDecodeError, ValueError):
                             continue
-            except (IOError, OSError):
+            except OSError:
                 continue
 
         rows = [
@@ -158,7 +167,18 @@ class TokenMiner:
             self._save_cache({"rows": rows})
 
         if not rows:
-            return pd.DataFrame(columns=["date", "model", "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens"])
+            return pd.DataFrame(
+                columns=[
+                    "date",
+                    "model",
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                    "ephemeral_1h_input_tokens",
+                    "ephemeral_5m_input_tokens",
+                ]
+            )
 
         df = pd.DataFrame(rows)
         df["date"] = pd.to_datetime(df["date"])
@@ -175,13 +195,13 @@ class CacheSessionMiner:
 
     CACHE_TTL_SECONDS = 3600  # 1 hour
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Path | None = None):
         self.projects_dir = Path.home() / ".claude" / "projects"
         self.cache_dir = cache_dir or Path.home() / ".cache" / "claudealytics"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_path = self.cache_dir / "cache-session-mine.json"
 
-    def _get_all_jsonl_files(self) -> List[Path]:
+    def _get_all_jsonl_files(self) -> list[Path]:
         """Get ALL JSONL files recursively."""
         if not self.projects_dir.exists():
             return []
@@ -191,7 +211,7 @@ class CacheSessionMiner:
                 files.extend(project_dir.rglob("*.jsonl"))
         return sorted(files, key=lambda f: f.stat().st_mtime)
 
-    def _load_cache(self) -> Optional[Dict]:
+    def _load_cache(self) -> dict | None:
         if not self.cache_path.exists():
             return None
         try:
@@ -203,7 +223,7 @@ class CacheSessionMiner:
             pass
         return None
 
-    def _save_cache(self, data: Dict):
+    def _save_cache(self, data: dict):
         cache_data = {"timestamp": datetime.now().timestamp(), "data": data}
         with open(self.cache_path, "w") as f:
             json.dump(cache_data, f)
@@ -218,11 +238,21 @@ class CacheSessionMiner:
         had_model_switch, cache_hit_rate, cache_reuse_multiplier
         """
         empty_cols = [
-            "session_id", "date", "project", "model", "input_tokens",
-            "output_tokens", "cache_read_input_tokens",
-            "cache_creation_input_tokens", "ephemeral_1h_input_tokens",
-            "ephemeral_5m_input_tokens", "message_count", "models_used",
-            "model_count", "had_model_switch", "cache_hit_rate",
+            "session_id",
+            "date",
+            "project",
+            "model",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "ephemeral_1h_input_tokens",
+            "ephemeral_5m_input_tokens",
+            "message_count",
+            "models_used",
+            "model_count",
+            "had_model_switch",
+            "cache_hit_rate",
             "cache_reuse_multiplier",
         ]
 
@@ -237,18 +267,20 @@ class CacheSessionMiner:
                 return pd.DataFrame(columns=empty_cols)
 
         # session_id -> aggregated data
-        sessions: Dict[str, Dict] = defaultdict(lambda: {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_input_tokens": 0,
-            "cache_creation_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 0,
-            "ephemeral_5m_input_tokens": 0,
-            "message_count": 0,
-            "models": defaultdict(int),
-            "date": None,
-            "project": None,
-        })
+        sessions: dict[str, dict] = defaultdict(
+            lambda: {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0,
+                "ephemeral_5m_input_tokens": 0,
+                "message_count": 0,
+                "models": defaultdict(int),
+                "date": None,
+                "project": None,
+            }
+        )
 
         for file_path in self._get_all_jsonl_files():
             # Derive project name from the parent directory name
@@ -296,15 +328,19 @@ class CacheSessionMiner:
 
                             cache_creation = usage.get("cache_creation", {})
                             if isinstance(cache_creation, dict):
-                                s["ephemeral_1h_input_tokens"] += cache_creation.get("ephemeral_1h_input_tokens", 0) or 0
-                                s["ephemeral_5m_input_tokens"] += cache_creation.get("ephemeral_5m_input_tokens", 0) or 0
+                                s["ephemeral_1h_input_tokens"] += (
+                                    cache_creation.get("ephemeral_1h_input_tokens", 0) or 0
+                                )
+                                s["ephemeral_5m_input_tokens"] += (
+                                    cache_creation.get("ephemeral_5m_input_tokens", 0) or 0
+                                )
 
                             s["message_count"] += 1
                             s["models"][model] += 1
 
                         except (json.JSONDecodeError, ValueError):
                             continue
-            except (IOError, OSError):
+            except OSError:
                 continue
 
         rows = []
@@ -317,37 +353,35 @@ class CacheSessionMiner:
             # Primary model = most used
             primary_model = max(models_used, key=models_used.get) if models_used else ""
 
-            total_cache_input = (
-                s["input_tokens"] + s["cache_read_input_tokens"] + s["cache_creation_input_tokens"]
-            )
-            cache_hit_rate = (
-                (s["cache_read_input_tokens"] / total_cache_input * 100)
-                if total_cache_input > 0 else 0.0
-            )
+            total_cache_input = s["input_tokens"] + s["cache_read_input_tokens"] + s["cache_creation_input_tokens"]
+            cache_hit_rate = (s["cache_read_input_tokens"] / total_cache_input * 100) if total_cache_input > 0 else 0.0
             # Reuse multiplier: how many times cache reads exceeded creation cost
             cache_reuse_multiplier = (
                 (s["cache_read_input_tokens"] / s["cache_creation_input_tokens"])
-                if s["cache_creation_input_tokens"] > 0 else 0.0
+                if s["cache_creation_input_tokens"] > 0
+                else 0.0
             )
 
-            rows.append({
-                "session_id": session_id,
-                "date": s["date"],
-                "project": s["project"],
-                "model": primary_model,
-                "input_tokens": s["input_tokens"],
-                "output_tokens": s["output_tokens"],
-                "cache_read_input_tokens": s["cache_read_input_tokens"],
-                "cache_creation_input_tokens": s["cache_creation_input_tokens"],
-                "ephemeral_1h_input_tokens": s["ephemeral_1h_input_tokens"],
-                "ephemeral_5m_input_tokens": s["ephemeral_5m_input_tokens"],
-                "message_count": s["message_count"],
-                "models_used": str(models_used),
-                "model_count": model_count,
-                "had_model_switch": model_count > 1,
-                "cache_hit_rate": round(cache_hit_rate, 2),
-                "cache_reuse_multiplier": round(cache_reuse_multiplier, 2),
-            })
+            rows.append(
+                {
+                    "session_id": session_id,
+                    "date": s["date"],
+                    "project": s["project"],
+                    "model": primary_model,
+                    "input_tokens": s["input_tokens"],
+                    "output_tokens": s["output_tokens"],
+                    "cache_read_input_tokens": s["cache_read_input_tokens"],
+                    "cache_creation_input_tokens": s["cache_creation_input_tokens"],
+                    "ephemeral_1h_input_tokens": s["ephemeral_1h_input_tokens"],
+                    "ephemeral_5m_input_tokens": s["ephemeral_5m_input_tokens"],
+                    "message_count": s["message_count"],
+                    "models_used": str(models_used),
+                    "model_count": model_count,
+                    "had_model_switch": model_count > 1,
+                    "cache_hit_rate": round(cache_hit_rate, 2),
+                    "cache_reuse_multiplier": round(cache_reuse_multiplier, 2),
+                }
+            )
 
         if use_cache:
             self._save_cache({"rows": rows})

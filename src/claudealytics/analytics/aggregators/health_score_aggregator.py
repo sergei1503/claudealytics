@@ -17,8 +17,10 @@ def _score_cache_efficiency(data: dict) -> HealthSubScore:
 
     score = _clamp((hit_rate / 80) * 100)
     return HealthSubScore(
-        name="cache_efficiency", label="Cache Efficiency",
-        score=score, weight=0.20,
+        name="cache_efficiency",
+        label="Cache Efficiency",
+        score=score,
+        weight=0.20,
         explanation=f"Hit rate {hit_rate:.1f}%",
     )
 
@@ -36,8 +38,10 @@ def _score_error_rate(data: dict) -> HealthSubScore:
     else:
         score = 75 - ((error_pct - 5) / 15) * 75
     return HealthSubScore(
-        name="error_rate", label="Error Rate",
-        score=_clamp(score), weight=0.15,
+        name="error_rate",
+        label="Error Rate",
+        score=_clamp(score),
+        weight=0.15,
         explanation=f"{error_pct:.1f}% across {total_tool_calls:,} calls",
     )
 
@@ -49,8 +53,10 @@ def _score_read_before_write(data: dict) -> HealthSubScore:
     recent_pct = content.get("recent_rbw_pct")
     if recent_pct is not None:
         return HealthSubScore(
-            name="read_before_write", label="Read Before Write",
-            score=_clamp(recent_pct), weight=0.15,
+            name="read_before_write",
+            label="Read Before Write",
+            score=_clamp(recent_pct),
+            weight=0.15,
             explanation=f"{recent_pct:.0f}% preceded by read (7-day)",
         )
 
@@ -62,8 +68,10 @@ def _score_read_before_write(data: dict) -> HealthSubScore:
 
     pct = (writes_with_read / writes_total) * 100
     return HealthSubScore(
-        name="read_before_write", label="Read Before Write",
-        score=_clamp(pct), weight=0.15,
+        name="read_before_write",
+        label="Read Before Write",
+        score=_clamp(pct),
+        weight=0.15,
         explanation=f"{pct:.0f}% preceded by read",
     )
 
@@ -83,8 +91,10 @@ def _score_token_efficiency(data: dict) -> HealthSubScore:
     else:
         score = max(0, 100 - ((ratio - 0.60) / 0.90) * 100)
     return HealthSubScore(
-        name="token_efficiency", label="Token Efficiency",
-        score=_clamp(score), weight=0.10,
+        name="token_efficiency",
+        label="Token Efficiency",
+        score=_clamp(score),
+        weight=0.10,
         explanation=f"Ratio {ratio:.2f}",
     )
 
@@ -125,8 +135,10 @@ def _score_model_balance(data: dict) -> HealthSubScore:
 
     premium_pct = (opus_tokens + sonnet_tokens) / total_tokens * 100
     return HealthSubScore(
-        name="model_balance", label="Model Balance",
-        score=_clamp(score), weight=0.10,
+        name="model_balance",
+        label="Model Balance",
+        score=_clamp(score),
+        weight=0.10,
         explanation=f"{models_used} model{'s' if models_used != 1 else ''}, {premium_pct:.0f}% premium",
     )
 
@@ -136,7 +148,9 @@ def _score_config_health(data: dict) -> HealthSubScore:
     high = ch.get("issues_high")
     if high is None:
         return HealthSubScore(
-            name="config_health", label="Config Health", weight=0.10,
+            name="config_health",
+            label="Config Health",
+            weight=0.10,
             explanation="Run analysis to enable",
         )
 
@@ -156,8 +170,10 @@ def _score_config_health(data: dict) -> HealthSubScore:
         explanation = f"{high} high, {medium} medium issues"
 
     return HealthSubScore(
-        name="config_health", label="Config Health",
-        score=_clamp(score), weight=0.10,
+        name="config_health",
+        label="Config Health",
+        score=_clamp(score),
+        weight=0.10,
         explanation=explanation,
     )
 
@@ -172,16 +188,20 @@ def _score_autonomy(data: dict) -> HealthSubScore:
             return HealthSubScore(name="autonomy", label="Autonomy & Efficiency", weight=0.10)
         score = _clamp((avg_run / 6) * 100)
         return HealthSubScore(
-            name="autonomy", label="Autonomy & Efficiency",
-            score=score, weight=0.10,
+            name="autonomy",
+            label="Autonomy & Efficiency",
+            score=score,
+            weight=0.10,
             explanation=f"{avg_run:.1f} msgs between interventions",
         )
 
     # ratio is 0-1 (assistant_msgs / total_msgs), score as percentage
     score = _clamp(ratio * 100)
     return HealthSubScore(
-        name="autonomy", label="Autonomy & Efficiency",
-        score=score, weight=0.10,
+        name="autonomy",
+        label="Autonomy & Efficiency",
+        score=score,
+        weight=0.10,
         explanation=f"{ratio:.0%} autonomy ratio (7-day avg)",
     )
 
@@ -202,8 +222,10 @@ def _score_agent_utilization(data: dict) -> HealthSubScore:
     used_count = total_defined - unused_count
     pct = (used_count / total_defined) * 100
     return HealthSubScore(
-        name="agent_utilization", label="Agent & Skill Utilization",
-        score=_clamp(pct), weight=0.10,
+        name="agent_utilization",
+        label="Agent & Skill Utilization",
+        score=_clamp(pct),
+        weight=0.10,
         explanation=f"{used_count}/{total_defined} in use ({unused_count} unused)",
     )
 

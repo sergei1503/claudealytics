@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -46,12 +46,8 @@ def _get_logger() -> logging.Logger:
     logger = logging.getLogger("claudealytics.llm_review")
     logger.setLevel(logging.DEBUG)
     if not logger.handlers:
-        handler = RotatingFileHandler(
-            str(LOG_FILE), maxBytes=1_000_000, backupCount=3
-        )
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-        )
+        handler = RotatingFileHandler(str(LOG_FILE), maxBytes=1_000_000, backupCount=3)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         logger.addHandler(handler)
     _logger = logger
     return _logger
@@ -74,18 +70,22 @@ def _save_debug_response(batch_index: int, stdout: str, stderr: str) -> None:
         DEBUG_DIR.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = DEBUG_DIR / f"batch_{batch_index}_{ts}.json"
-        payload = json.dumps({
-            "batch_index": batch_index,
-            "timestamp": ts,
-            "stdout": stdout[:50_000],
-            "stderr": stderr[:50_000] if stderr else "",
-        }, indent=2)
+        payload = json.dumps(
+            {
+                "batch_index": batch_index,
+                "timestamp": ts,
+                "stdout": stdout[:50_000],
+                "stderr": stderr[:50_000] if stderr else "",
+            },
+            indent=2,
+        )
         path.write_text(payload)
     except Exception:
         pass
 
 
 # ── Quality Checks ─────────────────────────────────────────────────
+
 
 def _parse_frontmatter_robust(content: str) -> dict | None:
     """Parse YAML frontmatter with fallback for complex content.
@@ -125,46 +125,54 @@ def analyze_quality(files: list[tuple[Path, str]]) -> list[ConfigQualityIssue]:
         if AGENTS_DIR in path.parents:
             meta = _parse_frontmatter_robust(content)
             if meta is None:
-                issues.append(ConfigQualityIssue(
-                    file_path=path_str,
-                    issue_type="missing_frontmatter",
-                    severity="medium",
-                    message="Cannot parse YAML frontmatter",
-                    suggestion="Ensure the file starts with valid --- YAML --- frontmatter",
-                ))
+                issues.append(
+                    ConfigQualityIssue(
+                        file_path=path_str,
+                        issue_type="missing_frontmatter",
+                        severity="medium",
+                        message="Cannot parse YAML frontmatter",
+                        suggestion="Ensure the file starts with valid --- YAML --- frontmatter",
+                    )
+                )
             else:
                 for field in ("name", "description"):
                     if not meta.get(field):
-                        issues.append(ConfigQualityIssue(
-                            file_path=path_str,
-                            issue_type="missing_frontmatter",
-                            severity="low",
-                            message=f"Agent missing '{field}' in frontmatter",
-                            suggestion=f"Add '{field}' to the YAML frontmatter",
-                        ))
+                        issues.append(
+                            ConfigQualityIssue(
+                                file_path=path_str,
+                                issue_type="missing_frontmatter",
+                                severity="low",
+                                message=f"Agent missing '{field}' in frontmatter",
+                                suggestion=f"Add '{field}' to the YAML frontmatter",
+                            )
+                        )
 
         # Skill files: check frontmatter (optional — no issue if absent)
         elif SKILLS_DIR in path.parents:
             meta = _parse_frontmatter_robust(content)
             if meta is None:
-                issues.append(ConfigQualityIssue(
-                    file_path=path_str,
-                    issue_type="missing_frontmatter",
-                    severity="medium",
-                    message="Cannot parse YAML frontmatter",
-                    suggestion="Ensure the file starts with valid --- YAML --- frontmatter",
-                ))
+                issues.append(
+                    ConfigQualityIssue(
+                        file_path=path_str,
+                        issue_type="missing_frontmatter",
+                        severity="medium",
+                        message="Cannot parse YAML frontmatter",
+                        suggestion="Ensure the file starts with valid --- YAML --- frontmatter",
+                    )
+                )
             elif meta:
                 # Frontmatter exists but may be missing optional fields
                 for field in ("name", "description"):
                     if not meta.get(field):
-                        issues.append(ConfigQualityIssue(
-                            file_path=path_str,
-                            issue_type="missing_frontmatter",
-                            severity="low",
-                            message=f"Skill missing '{field}' in frontmatter (optional)",
-                            suggestion=f"Consider adding '{field}' to the YAML frontmatter",
-                        ))
+                        issues.append(
+                            ConfigQualityIssue(
+                                file_path=path_str,
+                                issue_type="missing_frontmatter",
+                                severity="low",
+                                message=f"Skill missing '{field}' in frontmatter (optional)",
+                                suggestion=f"Consider adding '{field}' to the YAML frontmatter",
+                            )
+                        )
             # meta == {} means no frontmatter at all — skip (by design for skills)
 
         # Global CLAUDE.md: check required sections
@@ -172,29 +180,34 @@ def analyze_quality(files: list[tuple[Path, str]]) -> list[ConfigQualityIssue]:
             required = ["Routing Protocol", "Quick Reference", "Stack Profiles"]
             for section in required:
                 if section not in content:
-                    issues.append(ConfigQualityIssue(
-                        file_path=path_str,
-                        issue_type="missing_section",
-                        severity="medium",
-                        message=f"Missing expected section: {section}",
-                        suggestion=f"Add a '## {section}' section",
-                    ))
+                    issues.append(
+                        ConfigQualityIssue(
+                            file_path=path_str,
+                            issue_type="missing_section",
+                            severity="medium",
+                            message=f"Missing expected section: {section}",
+                            suggestion=f"Add a '## {section}' section",
+                        )
+                    )
 
         # Project CLAUDE.md: check profile declaration
         elif path.name == "CLAUDE.md":
             if "## Profile" not in content and "**Stack:**" not in content:
-                issues.append(ConfigQualityIssue(
-                    file_path=path_str,
-                    issue_type="missing_section",
-                    severity="low",
-                    message="Project CLAUDE.md missing stack profile declaration",
-                    suggestion="Add a ## Profile section with **Stack:** declaration",
-                ))
+                issues.append(
+                    ConfigQualityIssue(
+                        file_path=path_str,
+                        issue_type="missing_section",
+                        severity="low",
+                        message="Project CLAUDE.md missing stack profile declaration",
+                        suggestion="Add a ## Profile section with **Stack:** declaration",
+                    )
+                )
 
     return issues
 
 
 # ── Complexity Metrics ─────────────────────────────────────────────
+
 
 def _classify_file(path: Path) -> tuple[str, str]:
     """Return (file_type, display_name) for a config file."""
@@ -216,23 +229,26 @@ def analyze_complexity(files: list[tuple[Path, str]]) -> list[ConfigComplexityMe
         line_lengths = [len(line) for line in lines]
         file_type, name = _classify_file(path)
 
-        results.append(ConfigComplexityMetrics(
-            file_path=str(path),
-            name=name,
-            file_type=file_type,
-            lines=len(lines),
-            avg_line_length=sum(line_lengths) / max(len(line_lengths), 1),
-            max_line_length=max(line_lengths) if line_lengths else 0,
-            section_count=sum(1 for line in lines if re.match(r"^#{1,3}\s", line)),
-            table_count=sum(1 for line in lines if line.strip().startswith("|") and "|" in line[1:]),
-            code_block_count=content.count("```") // 2,
-            word_count=len(content.split()),
-        ))
+        results.append(
+            ConfigComplexityMetrics(
+                file_path=str(path),
+                name=name,
+                file_type=file_type,
+                lines=len(lines),
+                avg_line_length=sum(line_lengths) / max(len(line_lengths), 1),
+                max_line_length=max(line_lengths) if line_lengths else 0,
+                section_count=sum(1 for line in lines if re.match(r"^#{1,3}\s", line)),
+                table_count=sum(1 for line in lines if line.strip().startswith("|") and "|" in line[1:]),
+                code_block_count=content.count("```") // 2,
+                word_count=len(content.split()),
+            )
+        )
 
     return results
 
 
 # ── Cross-file Consistency ─────────────────────────────────────────
+
 
 def analyze_consistency(files: list[tuple[Path, str]]) -> list[ConfigQualityIssue]:
     """Check cross-file consistency using existing cross_reference logic."""
@@ -266,6 +282,7 @@ def analyze_consistency(files: list[tuple[Path, str]]) -> list[ConfigQualityIssu
 
 # ── LLM Review ─────────────────────────────────────────────────────
 
+
 def _review_batch(
     batch_files: list[tuple[Path, str]],
     batch_index: int,
@@ -277,10 +294,7 @@ def _review_batch(
 
     Returns: (reviews dict for this batch, cross_file_observations list)
     """
-    file_blocks = "\n\n".join(
-        f'<file name="{p.name}" path="{p}">\n{content}\n</file>'
-        for p, content in batch_files
-    )
+    file_blocks = "\n\n".join(f'<file name="{p.name}" path="{p}">\n{content}\n</file>' for p, content in batch_files)
 
     cross_file_section = ""
     if include_cross_file:
@@ -292,7 +306,11 @@ def _review_batch(
         "You are reviewing Claude Code configuration files to identify quality issues.\n"
         f"This is batch {batch_index + 1}. Analyze ALL the following files. Look for:\n"
         "- Per-file quality (clarity, redundancy, improvement opportunities)\n"
-        + ("- Cross-file patterns: overlap, contradictions, consolidation opportunities\n" if include_cross_file else "")
+        + (
+            "- Cross-file patterns: overlap, contradictions, consolidation opportunities\n"
+            if include_cross_file
+            else ""
+        )
         + "\n"
         "Return ONLY valid JSON with this exact structure:\n"
         "{\n"
@@ -303,9 +321,7 @@ def _review_batch(
         '      "improvement_suggestions": ["..."],\n'
         '      "summary": "1-2 sentence assessment"\n'
         "    }\n"
-        "  },\n"
-        + cross_file_section
-        + "}\n\n"
+        "  },\n" + cross_file_section + "}\n\n"
         "Files to analyze:\n\n"
         f"{file_blocks}"
     )
@@ -314,7 +330,10 @@ def _review_batch(
     file_names = [p.name for p, _ in batch_files]
     logger.info(
         "Batch %d: %d files, prompt_size=%d chars, files=%s",
-        batch_index, len(batch_files), prompt_size, file_names,
+        batch_index,
+        len(batch_files),
+        prompt_size,
+        file_names,
     )
 
     t0 = time.time()
@@ -340,7 +359,10 @@ def _review_batch(
 
         logger.info(
             "Batch %d: elapsed=%.1fs, response_size=%d chars, returncode=%d",
-            batch_index, elapsed, len(response), result.returncode,
+            batch_index,
+            elapsed,
+            len(response),
+            result.returncode,
         )
 
         if result.returncode != 0:
@@ -359,7 +381,8 @@ def _review_batch(
         if not json_match:
             logger.warning(
                 "Batch %d: no JSON found in response (first 200 chars: %s)",
-                batch_index, response[:200],
+                batch_index,
+                response[:200],
             )
             fallback = {
                 str(p): ConfigLLMReview(
@@ -375,7 +398,9 @@ def _review_batch(
         cross_obs: list[str] = data.get("cross_file_observations", []) if include_cross_file else []
 
         logger.info(
-            "Batch %d: LLM returned keys=%s", batch_index, list(file_data.keys()),
+            "Batch %d: LLM returned keys=%s",
+            batch_index,
+            list(file_data.keys()),
         )
 
         reviews: dict[str, ConfigLLMReview] = {}
@@ -396,7 +421,10 @@ def _review_batch(
             )
 
         logger.info(
-            "Batch %d: matched=%d, unmatched=%d", batch_index, matched, unmatched,
+            "Batch %d: matched=%d, unmatched=%d",
+            batch_index,
+            matched,
+            unmatched,
         )
 
         return reviews, cross_obs
@@ -452,7 +480,10 @@ def analyze_all_with_llm(
 
     logger.info(
         "=== LLM Review started: %d files, batch_size=%d, batches=%d, model=%s ===",
-        len(files), BATCH_SIZE, num_batches, model,
+        len(files),
+        BATCH_SIZE,
+        num_batches,
+        model,
     )
 
     _clean_debug_dir()
@@ -487,7 +518,9 @@ def analyze_all_with_llm(
     success_count = sum(1 for v in all_reviews.values() if v.clarity_score > 0)
     logger.info(
         "=== LLM Review complete: %d/%d files scored, %.1fs total ===",
-        success_count, len(files), total_elapsed,
+        success_count,
+        len(files),
+        total_elapsed,
     )
 
     if progress_callback:
@@ -497,6 +530,7 @@ def analyze_all_with_llm(
 
 
 # ── Full Analysis ──────────────────────────────────────────────────
+
 
 def _collect_all_config_files() -> list[tuple[Path, str]]:
     """Collect all config files with their content."""
@@ -551,11 +585,12 @@ def run_full_analysis(progress_callback=None) -> ConfigAnalysisResult:
         progress_callback(0.05, f"Running LLM review on {len(reviewable)} files...")
 
     llm_reviews, cross_file_observations = analyze_all_with_llm(
-        reviewable, progress_callback=progress_callback,
+        reviewable,
+        progress_callback=progress_callback,
     )
 
     result = ConfigAnalysisResult(
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         quality_issues=quality_issues,
         complexity_metrics=complexity_metrics,
         llm_reviews=llm_reviews,

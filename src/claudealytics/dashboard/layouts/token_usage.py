@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import streamlit as st
-import plotly.graph_objects as go
 import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
 
-from claudealytics.models.schemas import StatsCache
 from claudealytics.analytics.aggregators.token_aggregator import (
-    daily_tokens_by_model_detailed,
     daily_activity_df,
+    daily_tokens_by_model_detailed,
 )
+from claudealytics.models.schemas import StatsCache
 
 # Consistent color palette for models
 MODEL_COLORS = {
@@ -52,9 +52,7 @@ def render(stats: StatsCache):
     with col2:
         date_to = st.date_input("To", value=tokens_df["date"].max())
 
-    mask = (tokens_df["date"] >= pd.to_datetime(date_from)) & (
-        tokens_df["date"] <= pd.to_datetime(date_to)
-    )
+    mask = (tokens_df["date"] >= pd.to_datetime(date_from)) & (tokens_df["date"] <= pd.to_datetime(date_to))
     filtered = tokens_df[mask]
 
     if filtered.empty:
@@ -80,12 +78,8 @@ def render(stats: StatsCache):
         merged = filtered.merge(daily_sessions, on="date", how="left")
         merged = merged[merged["sessions"] > 0]
         if not merged.empty:
-            merged["tokens_per_session"] = (
-                merged["input_tokens"] + merged["output_tokens"]
-            ) / merged["sessions"]
-            _scatter_line_chart(
-                merged, y_col="tokens_per_session", y_label="Tokens per Session"
-            )
+            merged["tokens_per_session"] = (merged["input_tokens"] + merged["output_tokens"]) / merged["sessions"]
+            _scatter_line_chart(merged, y_col="tokens_per_session", y_label="Tokens per Session")
         else:
             st.info("No session data available for normalization")
     else:
@@ -102,12 +96,8 @@ def render(stats: StatsCache):
         merged = filtered.merge(daily_messages, on="date", how="left")
         merged = merged[merged["messages"] > 0]
         if not merged.empty:
-            merged["tokens_per_message"] = (
-                merged["input_tokens"] + merged["output_tokens"]
-            ) / merged["messages"]
-            _scatter_line_chart(
-                merged, y_col="tokens_per_message", y_label="Tokens per Message"
-            )
+            merged["tokens_per_message"] = (merged["input_tokens"] + merged["output_tokens"]) / merged["messages"]
+            _scatter_line_chart(merged, y_col="tokens_per_message", y_label="Tokens per Message")
         else:
             st.info("No message data available for normalization")
     else:
@@ -141,28 +131,30 @@ def render(stats: StatsCache):
             st.subheader("Messages vs Input Tokens")
             fig_input = go.Figure()
 
-            fig_input.add_trace(go.Scatter(
-                x=merged_msg["messages"],
-                y=merged_msg["input_tokens"],
-                mode="markers",
-                name="Input Tokens",
-                marker=dict(
-                    size=merged_msg["sessions"].clip(lower=1, upper=15) * 3,
-                    sizemin=4,
-                    color=merged_msg["days_from_start"],
-                    colorscale="Viridis",
-                    showscale=True,
-                    colorbar=dict(
-                        title=dict(text="Days from Start", font=dict(size=14)),
-                        x=1.1,
-                        len=0.6,
-                        y=0.5,
+            fig_input.add_trace(
+                go.Scatter(
+                    x=merged_msg["messages"],
+                    y=merged_msg["input_tokens"],
+                    mode="markers",
+                    name="Input Tokens",
+                    marker=dict(
+                        size=merged_msg["sessions"].clip(lower=1, upper=15) * 3,
+                        sizemin=4,
+                        color=merged_msg["days_from_start"],
+                        colorscale="Viridis",
+                        showscale=True,
+                        colorbar=dict(
+                            title=dict(text="Days from Start", font=dict(size=14)),
+                            x=1.1,
+                            len=0.6,
+                            y=0.5,
+                        ),
+                        opacity=0.7,
                     ),
-                    opacity=0.7,
-                ),
-                text=merged_msg["date"].dt.strftime("%Y-%m-%d"),
-                hovertemplate="Date: %{text}<br>Messages: %{x}<br>Input Tokens: %{y:,}<extra></extra>",
-            ))
+                    text=merged_msg["date"].dt.strftime("%Y-%m-%d"),
+                    hovertemplate="Date: %{text}<br>Messages: %{x}<br>Input Tokens: %{y:,}<extra></extra>",
+                )
+            )
 
             fig_input.update_layout(
                 height=400,
@@ -171,34 +163,38 @@ def render(stats: StatsCache):
                 yaxis_title="Input Tokens",
             )
             st.plotly_chart(fig_input, use_container_width=True)
-            st.caption("Bubble size reflects session count. Color indicates time progression (lighter/brighter = more recent).")
+            st.caption(
+                "Bubble size reflects session count. Color indicates time progression (lighter/brighter = more recent)."
+            )
 
             # Chart 2: Messages vs Output Tokens
             st.subheader("Messages vs Output Tokens")
             fig_output = go.Figure()
 
-            fig_output.add_trace(go.Scatter(
-                x=merged_msg["messages"],
-                y=merged_msg["output_tokens"],
-                mode="markers",
-                name="Output Tokens",
-                marker=dict(
-                    size=merged_msg["sessions"].clip(lower=1, upper=15) * 3,
-                    sizemin=4,
-                    color=merged_msg["days_from_start"],
-                    colorscale="Viridis",
-                    showscale=True,
-                    colorbar=dict(
-                        title=dict(text="Days from Start", font=dict(size=14)),
-                        x=1.1,
-                        len=0.6,
-                        y=0.5,
+            fig_output.add_trace(
+                go.Scatter(
+                    x=merged_msg["messages"],
+                    y=merged_msg["output_tokens"],
+                    mode="markers",
+                    name="Output Tokens",
+                    marker=dict(
+                        size=merged_msg["sessions"].clip(lower=1, upper=15) * 3,
+                        sizemin=4,
+                        color=merged_msg["days_from_start"],
+                        colorscale="Viridis",
+                        showscale=True,
+                        colorbar=dict(
+                            title=dict(text="Days from Start", font=dict(size=14)),
+                            x=1.1,
+                            len=0.6,
+                            y=0.5,
+                        ),
+                        opacity=0.7,
                     ),
-                    opacity=0.7,
-                ),
-                text=merged_msg["date"].dt.strftime("%Y-%m-%d"),
-                hovertemplate="Date: %{text}<br>Messages: %{x}<br>Output Tokens: %{y:,}<extra></extra>",
-            ))
+                    text=merged_msg["date"].dt.strftime("%Y-%m-%d"),
+                    hovertemplate="Date: %{text}<br>Messages: %{x}<br>Output Tokens: %{y:,}<extra></extra>",
+                )
+            )
 
             fig_output.update_layout(
                 height=400,
@@ -207,25 +203,27 @@ def render(stats: StatsCache):
                 yaxis_title="Output Tokens",
             )
             st.plotly_chart(fig_output, use_container_width=True)
-            st.caption("Bubble size reflects session count. Color indicates time progression (lighter/brighter = more recent).")
+            st.caption(
+                "Bubble size reflects session count. Color indicates time progression (lighter/brighter = more recent)."
+            )
 
     # 6. Cache Efficiency (kept as-is)
     st.subheader("Cache Efficiency")
     if stats.modelUsage:
         cache_data = []
         for model, usage in stats.modelUsage.items():
-            total_input = (
-                usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens
-            )
+            total_input = usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens
             if total_input > 0:
                 cache_hit_rate = usage.cacheReadInputTokens / total_input * 100
-                cache_data.append({
-                    "model": _short_model_name(model),
-                    "cache_hit_rate": round(cache_hit_rate, 1),
-                    "cache_read": usage.cacheReadInputTokens,
-                    "cache_creation": usage.cacheCreationInputTokens,
-                    "direct_input": usage.inputTokens,
-                })
+                cache_data.append(
+                    {
+                        "model": _short_model_name(model),
+                        "cache_hit_rate": round(cache_hit_rate, 1),
+                        "cache_read": usage.cacheReadInputTokens,
+                        "cache_creation": usage.cacheCreationInputTokens,
+                        "direct_input": usage.inputTokens,
+                    }
+                )
 
         if cache_data:
             import plotly.express as px
@@ -242,7 +240,9 @@ def render(stats: StatsCache):
             fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
             fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=0))
             st.plotly_chart(fig, use_container_width=True)
-            st.caption("For per-session cache analysis, cost savings, and cache-breaking detection, see the **Cache Analysis** tab.")
+            st.caption(
+                "For per-session cache analysis, cost savings, and cache-breaking detection, see the **Cache Analysis** tab."
+            )
 
 
 def _render_efficiency_section(tokens_df: pd.DataFrame, activity: pd.DataFrame):
@@ -285,9 +285,7 @@ def _render_efficiency_section(tokens_df: pd.DataFrame, activity: pd.DataFrame):
     eff = eff.dropna(subset=["efficiency_ratio"])
 
     if not eff.empty:
-        _scatter_line_chart(
-            eff, y_col="efficiency_ratio", y_label="Output / Input Ratio", agg_func="mean"
-        )
+        _scatter_line_chart(eff, y_col="efficiency_ratio", y_label="Output / Input Ratio", agg_func="mean")
 
 
 def _scatter_line_chart(df: pd.DataFrame, y_col: str, y_label: str, agg_func: str = "sum"):
@@ -302,15 +300,17 @@ def _scatter_line_chart(df: pd.DataFrame, y_col: str, y_label: str, agg_func: st
         # Aggregate in case there are multiple entries per date per model
         agg = model_data.groupby("date")[y_col].agg(agg_func).reset_index()
 
-        fig.add_trace(go.Scatter(
-            x=agg["date"],
-            y=agg[y_col],
-            mode="lines+markers",
-            name=model,
-            line=dict(color=color_map[model]),
-            marker=dict(size=5, color=color_map[model]),
-            hovertemplate=f"{model}<br>Date: %{{x|%Y-%m-%d}}<br>{y_label}: %{{y:,}}<extra></extra>",
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=agg["date"],
+                y=agg[y_col],
+                mode="lines+markers",
+                name=model,
+                line=dict(color=color_map[model]),
+                marker=dict(size=5, color=color_map[model]),
+                hovertemplate=f"{model}<br>Date: %{{x|%Y-%m-%d}}<br>{y_label}: %{{y:,}}<extra></extra>",
+            )
+        )
 
     fig.update_layout(
         height=400,

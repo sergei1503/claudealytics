@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import streamlit as st
-import plotly.express as px
 import pandas as pd
+import plotly.express as px
+import streamlit as st
 
-from claudealytics.models.schemas import StatsCache
 from claudealytics.analytics.aggregators.token_aggregator import daily_activity_df
+from claudealytics.models.schemas import StatsCache
 
 
 def render(stats: StatsCache):
@@ -43,9 +43,13 @@ def render(stats: StatsCache):
     st.divider()
 
     # Daily session count
-    st.subheader("Daily Sessions", help="Number of Claude Code sessions started per day within the selected date range.")
+    st.subheader(
+        "Daily Sessions", help="Number of Claude Code sessions started per day within the selected date range."
+    )
     fig = px.bar(
-        filtered, x="date", y="sessions",
+        filtered,
+        x="date",
+        y="sessions",
         labels={"date": "Date", "sessions": "Sessions"},
         color_discrete_sequence=["#6366f1"],
     )
@@ -55,7 +59,10 @@ def render(stats: StatsCache):
         st.caption(f"Data as of: {stats.lastComputedDate}")
 
     # Messages vs Tool Calls scatter
-    st.subheader("Messages vs Tool Calls per Day", help="Each bubble is one day. X = messages exchanged, Y = tool calls made, size = sessions. Color shows time progression.")
+    st.subheader(
+        "Messages vs Tool Calls per Day",
+        help="Each bubble is one day. X = messages exchanged, Y = tool calls made, size = sessions. Color shows time progression.",
+    )
 
     # Calculate days from start for color gradient
     scatter_data = filtered.copy()
@@ -63,11 +70,17 @@ def render(stats: StatsCache):
 
     fig = px.scatter(
         scatter_data,
-        x="messages", y="tool_calls",
+        x="messages",
+        y="tool_calls",
         size="sessions",
         color="days_from_start",
         hover_data=["date"],
-        labels={"messages": "Messages", "tool_calls": "Tool Calls", "sessions": "Sessions", "days_from_start": "Days from Start"},
+        labels={
+            "messages": "Messages",
+            "tool_calls": "Tool Calls",
+            "sessions": "Sessions",
+            "days_from_start": "Days from Start",
+        },
         color_continuous_scale="Viridis",
     )
     fig.update_layout(
@@ -78,7 +91,7 @@ def render(stats: StatsCache):
             x=1.1,
             len=0.6,
             y=0.5,
-        )
+        ),
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption("Bubble size reflects session count. Color indicates time progression (lighter/brighter = more recent).")
@@ -86,7 +99,9 @@ def render(stats: StatsCache):
     # Tool calls trend
     st.subheader("Daily Tool Calls", help="Total tool invocations (Read, Write, Bash, etc.) per day.")
     fig = px.line(
-        filtered, x="date", y="tool_calls",
+        filtered,
+        x="date",
+        y="tool_calls",
         labels={"date": "Date", "tool_calls": "Tool Calls"},
         color_discrete_sequence=["#14b8a6"],
         markers=True,

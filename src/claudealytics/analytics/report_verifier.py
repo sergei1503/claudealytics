@@ -42,68 +42,107 @@ def verify_report(report: FullReport) -> ReportVerification:
 
     activity = data.get("activity", {})
     if "total_sessions" in activity:
-        checks.append(_check_number(md, "Total sessions", activity["total_sessions"],
-                                    [r"(\d[\d,]*)\s*(?:total\s+)?sessions"]))
+        checks.append(
+            _check_number(md, "Total sessions", activity["total_sessions"], [r"(\d[\d,]*)\s*(?:total\s+)?sessions"])
+        )
     if "total_messages" in activity:
-        checks.append(_check_number(md, "Total messages", activity["total_messages"],
-                                    [r"(\d[\d,]*)\s*(?:total\s+)?messages"]))
+        checks.append(
+            _check_number(md, "Total messages", activity["total_messages"], [r"(\d[\d,]*)\s*(?:total\s+)?messages"])
+        )
     if "total_cost_usd" in activity:
-        checks.append(_check_number(md, "Total cost (USD)", activity["total_cost_usd"],
-                                    [r"\$\s*([\d,]+\.?\d*)\s*(?:total\s+)?(?:cost|spent|spend)",
-                                     r"total\s+cost[:\s]*\$\s*([\d,]+\.?\d*)",
-                                     r"\$([\d,]+\.?\d*)\s*(?:reported)?\s*cost"],
-                                    is_currency=True))
+        checks.append(
+            _check_number(
+                md,
+                "Total cost (USD)",
+                activity["total_cost_usd"],
+                [
+                    r"\$\s*([\d,]+\.?\d*)\s*(?:total\s+)?(?:cost|spent|spend)",
+                    r"total\s+cost[:\s]*\$\s*([\d,]+\.?\d*)",
+                    r"\$([\d,]+\.?\d*)\s*(?:reported)?\s*cost",
+                ],
+                is_currency=True,
+            )
+        )
     if "top_model_by_cost" in activity:
         checks.append(_check_text(md, "Top model by cost", activity["top_model_by_cost"]))
 
     tokens = data.get("tokens", {})
     if "avg_daily_7d" in tokens:
-        checks.append(_check_number(md, "Avg daily tokens (7d)", tokens["avg_daily_7d"],
-                                    [r"(?:average|avg)\s+daily\s+tokens[^:]*?:?\s*([\d,]+)"]))
+        checks.append(
+            _check_number(
+                md,
+                "Avg daily tokens (7d)",
+                tokens["avg_daily_7d"],
+                [r"(?:average|avg)\s+daily\s+tokens[^:]*?:?\s*([\d,]+)"],
+            )
+        )
 
     cache = data.get("cache", {})
     if "hit_rate" in cache:
-        checks.append(_check_number(md, "Cache hit rate (%)", cache["hit_rate"],
-                                    [r"cache\s+hit\s+rate[:\s]*([\d.]+)\s*%",
-                                     r"([\d.]+)\s*%\s*cache\s+hit",
-                                     r"([\d.]+)\s*%\s*hit\s+rate"]))
+        checks.append(
+            _check_number(
+                md,
+                "Cache hit rate (%)",
+                cache["hit_rate"],
+                [r"cache\s+hit\s+rate[:\s]*([\d.]+)\s*%", r"([\d.]+)\s*%\s*cache\s+hit", r"([\d.]+)\s*%\s*hit\s+rate"],
+            )
+        )
 
     content = data.get("content", {})
     if "total_errors" in content:
-        checks.append(_check_number(md, "Total errors", content["total_errors"],
-                                    [r"(\d[\d,]*)\s*(?:total\s+)?error(?:s|\s+events)",
-                                     r"errors?[:\s]*([\d,]+)"]))
+        checks.append(
+            _check_number(
+                md,
+                "Total errors",
+                content["total_errors"],
+                [r"(\d[\d,]*)\s*(?:total\s+)?error(?:s|\s+events)", r"errors?[:\s]*([\d,]+)"],
+            )
+        )
     if "sessions_analyzed" in content:
-        checks.append(_check_number(md, "Sessions analyzed", content["sessions_analyzed"],
-                                    [r"(\d[\d,]*)\s*sessions?\s+(?:analyzed|scanned)",
-                                     r"(\d[\d,]*)\s*sessions"]))
+        checks.append(
+            _check_number(
+                md,
+                "Sessions analyzed",
+                content["sessions_analyzed"],
+                [r"(\d[\d,]*)\s*sessions?\s+(?:analyzed|scanned)", r"(\d[\d,]*)\s*sessions"],
+            )
+        )
 
     as_data = data.get("agents_skills", {})
     if "unique_agents" in as_data:
-        checks.append(_check_number(md, "Unique agents", as_data["unique_agents"],
-                                    [r"(\d[\d,]*)\s+unique\s+agents?"]))
+        checks.append(_check_number(md, "Unique agents", as_data["unique_agents"], [r"(\d[\d,]*)\s+unique\s+agents?"]))
     if "unique_skills" in as_data:
-        checks.append(_check_number(md, "Unique skills", as_data["unique_skills"],
-                                    [r"(\d[\d,]*)\s+unique\s+skills?"]))
+        checks.append(_check_number(md, "Unique skills", as_data["unique_skills"], [r"(\d[\d,]*)\s+unique\s+skills?"]))
     if "total_conversations" in as_data:
-        checks.append(_check_number(md, "Total conversations", as_data["total_conversations"],
-                                    [r"(\d[\d,]*)\s*(?:total\s+)?conversations?",
-                                     r"(\d[\d,]*)\s*conversations"]))
+        checks.append(
+            _check_number(
+                md,
+                "Total conversations",
+                as_data["total_conversations"],
+                [r"(\d[\d,]*)\s*(?:total\s+)?conversations?", r"(\d[\d,]*)\s*conversations"],
+            )
+        )
 
     opt = data.get("optimization", {})
     if "unused_agents" in opt:
-        checks.append(_check_number(md, "Unused agents", opt["unused_agents"],
-                                    [r"(\d+)\s*unused\s+agents?"]))
+        checks.append(_check_number(md, "Unused agents", opt["unused_agents"], [r"(\d+)\s*unused\s+agents?"]))
     if "unused_skills" in opt:
-        checks.append(_check_number(md, "Unused skills", opt["unused_skills"],
-                                    [r"(\d+)\s*unused\s+skills?"]))
+        checks.append(_check_number(md, "Unused skills", opt["unused_skills"], [r"(\d+)\s*unused\s+skills?"]))
 
     ch = data.get("config_health", {})
     if "health_score" in ch:
-        checks.append(_check_number(md, "Config health score", ch["health_score"],
-                                    [r"health\s+score[:\s]*([\d]+)\s*/\s*100",
-                                     r"([\d]+)\s*/\s*100\s*health",
-                                     r"score[:\s]*([\d]+)\s*/\s*100"]))
+        checks.append(
+            _check_number(
+                md,
+                "Config health score",
+                ch["health_score"],
+                [
+                    r"health\s+score[:\s]*([\d]+)\s*/\s*100",
+                    r"([\d]+)\s*/\s*100\s*health",
+                    r"score[:\s]*([\d]+)\s*/\s*100",
+                ],
+            )
+        )
 
     result = ReportVerification(checks=checks)
     result.total_checked = len([c for c in checks if c.report_value is not None])

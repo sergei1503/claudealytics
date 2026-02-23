@@ -6,7 +6,6 @@ import re
 
 import pandas as pd
 
-
 _FRAMEWORK_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("pytest", re.compile(r"\bpytest\b|\bpython3?\s+-m\s+pytest\b", re.I)),
     ("unittest", re.compile(r"\bpython3?\s+-m\s+unittest\b", re.I)),
@@ -96,9 +95,7 @@ def compute_test_position(tool_calls: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def compute_test_by_project(
-    tool_calls: pd.DataFrame, session_stats: pd.DataFrame
-) -> pd.DataFrame:
+def compute_test_by_project(tool_calls: pd.DataFrame, session_stats: pd.DataFrame) -> pd.DataFrame:
     """Test counts per project.
 
     Returns DF: project, test_count, sessions
@@ -116,9 +113,13 @@ def compute_test_by_project(
     else:
         df["project"] = "unknown"
 
-    result = df.groupby("project").agg(
-        test_count=("session_id", "size"),
-        sessions=("session_id", "nunique"),
-    ).reset_index()
+    result = (
+        df.groupby("project")
+        .agg(
+            test_count=("session_id", "size"),
+            sessions=("session_id", "nunique"),
+        )
+        .reset_index()
+    )
 
     return result.sort_values("test_count", ascending=False).reset_index(drop=True)

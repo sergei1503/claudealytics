@@ -7,38 +7,34 @@ to identify inefficiencies, redundancies, and improvement opportunities.
 
 import re
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel
 
-from claudealytics.scanner.agent_scanner import scan_agents
-from claudealytics.scanner.skill_scanner import scan_skills
-from claudealytics.scanner.claude_md_scanner import scan_claude_md_files
 from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
 from claudealytics.analytics.parsers.execution_log_parser import (
     parse_agent_executions,
     parse_skill_executions,
 )
-from claudealytics.analytics.data_merger import (
-    merge_agent_executions,
-    merge_skill_executions,
-)
+from claudealytics.scanner.agent_scanner import scan_agents
+from claudealytics.scanner.claude_md_scanner import scan_claude_md_files
+from claudealytics.scanner.skill_scanner import scan_skills
 
 
 class OptimizationIssue(BaseModel):
     """Represents an optimization opportunity."""
+
     severity: str  # "critical", "warning", "info"
     category: str  # "unused", "duplicate", "inefficient", "indexing"
     title: str
     description: str
     impact: str  # What happens if not fixed
     recommendation: str  # How to fix
-    files: List[str] = []  # Affected files
+    files: list[str] = []  # Affected files
 
 
-def analyze_unused_agents(agent_info, agent_executions) -> List[OptimizationIssue]:
+def analyze_unused_agents(agent_info, agent_executions) -> list[OptimizationIssue]:
     """Find agents defined but never invoked."""
     issues = []
 
@@ -47,20 +43,22 @@ def analyze_unused_agents(agent_info, agent_executions) -> List[OptimizationIssu
 
     for agent in agent_info:
         if agent.name not in executed_agents:
-            issues.append(OptimizationIssue(
-                severity="info",
-                category="unused",
-                title=f"Unused agent: {agent.name}",
-                description=f"Agent '{agent.name}' is defined but has never been executed",
-                impact="Increases cognitive load when Claude scans available agents",
-                recommendation="Consider removing if no longer needed, or document why it's kept",
-                files=[agent.file_path]
-            ))
+            issues.append(
+                OptimizationIssue(
+                    severity="info",
+                    category="unused",
+                    title=f"Unused agent: {agent.name}",
+                    description=f"Agent '{agent.name}' is defined but has never been executed",
+                    impact="Increases cognitive load when Claude scans available agents",
+                    recommendation="Consider removing if no longer needed, or document why it's kept",
+                    files=[agent.file_path],
+                )
+            )
 
     return issues
 
 
-def analyze_unused_skills(skill_info, skill_executions) -> List[OptimizationIssue]:
+def analyze_unused_skills(skill_info, skill_executions) -> list[OptimizationIssue]:
     """Find skills defined but never invoked."""
     issues = []
 
@@ -69,20 +67,22 @@ def analyze_unused_skills(skill_info, skill_executions) -> List[OptimizationIssu
 
     for skill in skill_info:
         if skill.name not in executed_skills:
-            issues.append(OptimizationIssue(
-                severity="info",
-                category="unused",
-                title=f"Unused skill: {skill.name}",
-                description=f"Skill '{skill.name}' is defined but has never been executed",
-                impact="Increases cognitive load when Claude scans available skills",
-                recommendation="Consider removing if no longer needed, or document why it's kept",
-                files=[skill.file_path]
-            ))
+            issues.append(
+                OptimizationIssue(
+                    severity="info",
+                    category="unused",
+                    title=f"Unused skill: {skill.name}",
+                    description=f"Skill '{skill.name}' is defined but has never been executed",
+                    impact="Increases cognitive load when Claude scans available skills",
+                    recommendation="Consider removing if no longer needed, or document why it's kept",
+                    files=[skill.file_path],
+                )
+            )
 
     return issues
 
 
-def analyze_duplicate_guidance(claude_md_files) -> List[OptimizationIssue]:
+def analyze_duplicate_guidance(claude_md_files) -> list[OptimizationIssue]:
     """Find conflicting or redundant routing rules in CLAUDE.md files."""
     issues = []
 
@@ -110,34 +110,38 @@ def analyze_duplicate_guidance(claude_md_files) -> List[OptimizationIssue]:
     for agent_name, locations in agent_routes.items():
         if len(locations) > 1:
             files = list(set([loc[0] for loc in locations]))
-            issues.append(OptimizationIssue(
-                severity="warning",
-                category="duplicate",
-                title=f"Agent '{agent_name}' routed in multiple files",
-                description=f"Agent is referenced in {len(files)} different CLAUDE.md files",
-                impact="May cause inconsistent behavior depending on which file Claude reads",
-                recommendation="Consolidate routing rules to a single location",
-                files=files
-            ))
+            issues.append(
+                OptimizationIssue(
+                    severity="warning",
+                    category="duplicate",
+                    title=f"Agent '{agent_name}' routed in multiple files",
+                    description=f"Agent is referenced in {len(files)} different CLAUDE.md files",
+                    impact="May cause inconsistent behavior depending on which file Claude reads",
+                    recommendation="Consolidate routing rules to a single location",
+                    files=files,
+                )
+            )
 
     # Check for skills mapped in multiple places
     for skill_name, locations in skill_routes.items():
         if len(locations) > 1:
             files = list(set([loc[0] for loc in locations]))
-            issues.append(OptimizationIssue(
-                severity="warning",
-                category="duplicate",
-                title=f"Skill '{skill_name}' routed in multiple files",
-                description=f"Skill is referenced in {len(files)} different CLAUDE.md files",
-                impact="May cause inconsistent behavior depending on which file Claude reads",
-                recommendation="Consolidate routing rules to a single location",
-                files=files
-            ))
+            issues.append(
+                OptimizationIssue(
+                    severity="warning",
+                    category="duplicate",
+                    title=f"Skill '{skill_name}' routed in multiple files",
+                    description=f"Skill is referenced in {len(files)} different CLAUDE.md files",
+                    impact="May cause inconsistent behavior depending on which file Claude reads",
+                    recommendation="Consolidate routing rules to a single location",
+                    files=files,
+                )
+            )
 
     return issues
 
 
-def analyze_agent_efficiency(agent_executions) -> List[OptimizationIssue]:
+def analyze_agent_efficiency(agent_executions) -> list[OptimizationIssue]:
     """Identify inefficient agent usage patterns."""
     issues = []
 
@@ -159,15 +163,17 @@ def analyze_agent_efficiency(agent_executions) -> List[OptimizationIssue]:
             total_usage = sum(model_counts.values())
 
             if agent_type in ["Explore", "Search", "Grep", "Glob"] and opus_usage > total_usage * 0.5:
-                issues.append(OptimizationIssue(
-                    severity="warning",
-                    category="inefficient",
-                    title=f"Expensive model for simple agent: {agent_type}",
-                    description=f"Agent '{agent_type}' uses Opus {opus_usage}/{total_usage} times for simple search tasks",
-                    impact="Higher costs without meaningful benefit for straightforward operations",
-                    recommendation="Use Haiku or Sonnet for search/exploration tasks",
-                    files=[]
-                ))
+                issues.append(
+                    OptimizationIssue(
+                        severity="warning",
+                        category="inefficient",
+                        title=f"Expensive model for simple agent: {agent_type}",
+                        description=f"Agent '{agent_type}' uses Opus {opus_usage}/{total_usage} times for simple search tasks",
+                        impact="Higher costs without meaningful benefit for straightforward operations",
+                        recommendation="Use Haiku or Sonnet for search/exploration tasks",
+                        files=[],
+                    )
+                )
 
     # Check for agents that are rarely successful
     # (This would require tracking success/failure, which isn't in current data)
@@ -175,7 +181,7 @@ def analyze_agent_efficiency(agent_executions) -> List[OptimizationIssue]:
     return issues
 
 
-def analyze_skill_overlap(skill_info) -> List[OptimizationIssue]:
+def analyze_skill_overlap(skill_info) -> list[OptimizationIssue]:
     """Find skills with overlapping functionality."""
     issues = []
 
@@ -184,15 +190,31 @@ def analyze_skill_overlap(skill_info) -> List[OptimizationIssue]:
     for skill in skill_info:
         # Extract keywords from description
         desc_lower = skill.description.lower()
-        keywords = set(re.findall(r'\b\w+\b', desc_lower))
+        keywords = set(re.findall(r"\b\w+\b", desc_lower))
         # Filter out common words
-        keywords -= {"the", "a", "an", "is", "are", "and", "or", "for", "to", "from", "with", "when", "this", "that", "use"}
+        keywords -= {
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "and",
+            "or",
+            "for",
+            "to",
+            "from",
+            "with",
+            "when",
+            "this",
+            "that",
+            "use",
+        }
         skill_keywords[skill.name] = keywords
 
     # Find skills with significant overlap
     skills = list(skill_keywords.keys())
     for i, skill1 in enumerate(skills):
-        for skill2 in skills[i+1:]:
+        for skill2 in skills[i + 1 :]:
             keywords1 = skill_keywords[skill1]
             keywords2 = skill_keywords[skill2]
 
@@ -201,20 +223,22 @@ def analyze_skill_overlap(skill_info) -> List[OptimizationIssue]:
                 overlap_ratio = len(overlap) / min(len(keywords1), len(keywords2))
 
                 if overlap_ratio > 0.5:
-                    issues.append(OptimizationIssue(
-                        severity="info",
-                        category="duplicate",
-                        title=f"Potential overlap: {skill1} and {skill2}",
-                        description=f"Skills share {len(overlap)} keywords ({overlap_ratio:.0%} similarity)",
-                        impact="May confuse Claude about which skill to use",
-                        recommendation="Consider merging skills or clarifying their distinct purposes",
-                        files=[]
-                    ))
+                    issues.append(
+                        OptimizationIssue(
+                            severity="info",
+                            category="duplicate",
+                            title=f"Potential overlap: {skill1} and {skill2}",
+                            description=f"Skills share {len(overlap)} keywords ({overlap_ratio:.0%} similarity)",
+                            impact="May confuse Claude about which skill to use",
+                            recommendation="Consider merging skills or clarifying their distinct purposes",
+                            files=[],
+                        )
+                    )
 
     return issues
 
 
-def suggest_indexing_opportunities(conversation_stats) -> List[OptimizationIssue]:
+def suggest_indexing_opportunities(conversation_stats) -> list[OptimizationIssue]:
     """Identify what could be pre-indexed for faster access."""
     issues = []
 
@@ -224,25 +248,29 @@ def suggest_indexing_opportunities(conversation_stats) -> List[OptimizationIssue
     for agent_name, count in top_agents:
         if count > 50:  # High frequency threshold
             if agent_name == "Explore":
-                issues.append(OptimizationIssue(
-                    severity="info",
-                    category="indexing",
-                    title=f"High-frequency exploration pattern",
-                    description=f"Explore agent used {count} times - consider pre-indexing",
-                    impact="Repeated exploration of same codebase patterns",
-                    recommendation="Create a codebase index file with common patterns pre-computed",
-                    files=[]
-                ))
+                issues.append(
+                    OptimizationIssue(
+                        severity="info",
+                        category="indexing",
+                        title="High-frequency exploration pattern",
+                        description=f"Explore agent used {count} times - consider pre-indexing",
+                        impact="Repeated exploration of same codebase patterns",
+                        recommendation="Create a codebase index file with common patterns pre-computed",
+                        files=[],
+                    )
+                )
             elif agent_name in ["Search", "Grep"]:
-                issues.append(OptimizationIssue(
-                    severity="info",
-                    category="indexing",
-                    title=f"Frequent search operations",
-                    description=f"{agent_name} agent used {count} times",
-                    impact="Repeated searches for similar patterns",
-                    recommendation="Consider creating a search index or using ripgrep with persistent cache",
-                    files=[]
-                ))
+                issues.append(
+                    OptimizationIssue(
+                        severity="info",
+                        category="indexing",
+                        title="Frequent search operations",
+                        description=f"{agent_name} agent used {count} times",
+                        impact="Repeated searches for similar patterns",
+                        recommendation="Consider creating a search index or using ripgrep with persistent cache",
+                        files=[],
+                    )
+                )
 
     return issues
 
@@ -265,12 +293,7 @@ def generate_optimization_report(include_conversations: bool = True) -> str:
 
         # Create lightweight execution objects for analysis
         conv_agent_execs = [
-            type("Exec", (), {
-                "agent_type": agent_name,
-                "model": "unknown",
-                "timestamp": "",
-                "session_id": ""
-            })()
+            type("Exec", (), {"agent_type": agent_name, "model": "unknown", "timestamp": "", "session_id": ""})()
             for agent_name, count in conv_stats.agents.items()
             for _ in range(min(count, 5))  # Sample for analysis
         ]
@@ -286,8 +309,12 @@ def generate_optimization_report(include_conversations: bool = True) -> str:
 - **Date range:** {conv_stats.date_range[0]} to {conv_stats.date_range[1]}
 - **Unique agents used:** {len(conv_stats.agents)}
 - **Unique skills used:** {len(conv_stats.skills)}
-- **Most used agent:** {max(conv_stats.agents.items(), key=lambda x: x[1])[0] if conv_stats.agents else 'N/A'} ({max(conv_stats.agents.values()) if conv_stats.agents else 0} times)
-- **Most used skill:** {max(conv_stats.skills.items(), key=lambda x: x[1])[0] if conv_stats.skills else 'N/A'} ({max(conv_stats.skills.values()) if conv_stats.skills else 0} times)
+- **Most used agent:** {max(conv_stats.agents.items(), key=lambda x: x[1])[0] if conv_stats.agents else "N/A"} ({
+            max(conv_stats.agents.values()) if conv_stats.agents else 0
+        } times)
+- **Most used skill:** {max(conv_stats.skills.items(), key=lambda x: x[1])[0] if conv_stats.skills else "N/A"} ({
+            max(conv_stats.skills.values()) if conv_stats.skills else 0
+        } times)
 """
     else:
         all_agent_execs = log_agents
@@ -324,7 +351,7 @@ def generate_optimization_report(include_conversations: bool = True) -> str:
     # Generate markdown report
     report = f"""# Claude Configuration Optimization Report
 
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 ## Executive Summary
 

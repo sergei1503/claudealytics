@@ -6,9 +6,9 @@ import json
 import os
 import subprocess
 import time
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from claudealytics.models.schemas import FullReport, StatsCache
 
@@ -59,12 +59,16 @@ def collect_platform_data(
     tokens: dict = {}
     try:
         from claudealytics.analytics.parsers.token_miner import mine_daily_tokens
+
         token_df = mine_daily_tokens(use_cache=True)
         if not token_df.empty and "date" in token_df.columns:
             # Build by_model: model_name -> total tokens from mined data
             if "model" in token_df.columns:
-                token_cols = [c for c in ["input_tokens", "output_tokens", "cache_read_input_tokens",
-                                          "cache_creation_input_tokens"] if c in token_df.columns]
+                token_cols = [
+                    c
+                    for c in ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
+                    if c in token_df.columns
+                ]
                 model_totals = token_df.groupby("model")[token_cols].sum()
                 by_model = {}
                 for model_name in model_totals.index:
@@ -89,6 +93,7 @@ def collect_platform_data(
     if tokens.get("by_model") and not activity.get("top_model_by_cost"):
         try:
             from claudealytics.analytics.cost_calculator import _get_pricing
+
             model_costs: dict[str, float] = {}
             for model_name, total_tokens in tokens["by_model"].items():
                 pricing = _get_pricing(model_name)
@@ -108,13 +113,22 @@ def collect_platform_data(
 
     cache: dict = {}
     try:
-        from claudealytics.analytics.parsers.token_miner import mine_session_cache
         from claudealytics.analytics.cache_analyzer import project_cache_summary
+        from claudealytics.analytics.parsers.token_miner import mine_session_cache
+
         session_df = mine_session_cache(use_cache=True)
         if not session_df.empty:
             total_input = int(session_df["input_tokens"].sum()) if "input_tokens" in session_df.columns else 0
-            total_cache = int(session_df["cache_read_input_tokens"].sum()) if "cache_read_input_tokens" in session_df.columns else 0
-            total_creation = int(session_df["cache_creation_input_tokens"].sum()) if "cache_creation_input_tokens" in session_df.columns else 0
+            total_cache = (
+                int(session_df["cache_read_input_tokens"].sum())
+                if "cache_read_input_tokens" in session_df.columns
+                else 0
+            )
+            total_creation = (
+                int(session_df["cache_creation_input_tokens"].sum())
+                if "cache_creation_input_tokens" in session_df.columns
+                else 0
+            )
             cache["total_input_tokens"] = total_input
             cache["total_cache_read"] = total_cache
             cache["total_cache_creation"] = total_creation
@@ -136,6 +150,7 @@ def collect_platform_data(
     content_data: dict = {}
     try:
         from claudealytics.analytics.parsers.content_miner import mine_content
+
         content = mine_content(use_cache=True)
         if content:
             if "session_stats" in content and not content["session_stats"].empty:
@@ -160,9 +175,14 @@ def collect_platform_data(
 
             if "session_stats" in content and not content["session_stats"].empty:
                 ss = content["session_stats"]
-                for col in ("writes_total_count", "writes_with_prior_read_count",
-                            "intervention_correction", "intervention_approval",
-                            "intervention_guidance", "intervention_new_instruction"):
+                for col in (
+                    "writes_total_count",
+                    "writes_with_prior_read_count",
+                    "intervention_correction",
+                    "intervention_approval",
+                    "intervention_guidance",
+                    "intervention_new_instruction",
+                ):
                     if col in ss.columns:
                         content_data[col] = int(ss[col].sum())
                 if "avg_autonomy_run_length" in ss.columns:
@@ -171,6 +191,7 @@ def collect_platform_data(
                 # 7-day recent metrics for health scoring
                 if "date" in ss.columns:
                     import pandas as pd
+
                     recent_cutoff = pd.Timestamp.now() - pd.Timedelta(days=7)
                     recent_ss = ss[ss["date"] >= recent_cutoff]
                     if not recent_ss.empty:
@@ -180,7 +201,10 @@ def collect_platform_data(
                             ratios = (recent_ss["assistant_msg_count"] / total_msgs).where(total_msgs > 0, 0)
                             content_data["recent_autonomy_ratio"] = round(float(ratios.mean()), 3)
                         # Read-before-write percentage
-                        if "writes_total_count" in recent_ss.columns and "writes_with_prior_read_count" in recent_ss.columns:
+                        if (
+                            "writes_total_count" in recent_ss.columns
+                            and "writes_with_prior_read_count" in recent_ss.columns
+                        ):
                             recent_writes = int(recent_ss["writes_total_count"].sum())
                             recent_rbw = int(recent_ss["writes_with_prior_read_count"].sum())
                             if recent_writes > 0:
@@ -191,8 +215,9 @@ def collect_platform_data(
 
     agents_skills: dict = {}
     try:
-        from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
         from claudealytics.analytics.aggregators.usage_aggregator import build_canonical_map
+        from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
+
         tool_stats = mine_tool_usage_stats(use_cache=True)
 
         if tool_stats.agents:
@@ -224,13 +249,15 @@ def collect_platform_data(
 
     optimization: dict = {}
     try:
-        from claudealytics.scanner.agent_scanner import scan_agents
-        from claudealytics.scanner.skill_scanner import scan_skills
         from claudealytics.analytics.optimization_analyzer import (
-            analyze_unused_agents, analyze_unused_skills,
-            analyze_duplicate_guidance, analyze_agent_efficiency,
+            analyze_agent_efficiency,
+            analyze_duplicate_guidance,
+            analyze_unused_agents,
+            analyze_unused_skills,
         )
+        from claudealytics.scanner.agent_scanner import scan_agents
         from claudealytics.scanner.claude_md_scanner import scan_claude_md_files
+        from claudealytics.scanner.skill_scanner import scan_skills
 
         agents = scan_agents()
         skills = scan_skills()
@@ -256,6 +283,7 @@ def collect_platform_data(
     config_health: dict = {}
     try:
         from claudealytics.analytics.config_analyzer import load_cached_analysis
+
         analysis = load_cached_analysis()
         if analysis:
             all_issues = analysis.quality_issues + analysis.consistency_issues
@@ -380,8 +408,7 @@ def summarize_platform_data(
     as_data = data.get("agents_skills", {})
     if as_data.get("agents"):
         section.append(
-            f"### Agents ({as_data.get('unique_agents', 0)} unique, "
-            f"{as_data.get('total_agent_uses', 0)} total uses)"
+            f"### Agents ({as_data.get('unique_agents', 0)} unique, {as_data.get('total_agent_uses', 0)} total uses)"
         )
         for agent, count in list(as_data["agents"].items())[:15]:
             section.append(f"- {agent}: {count}")
@@ -389,8 +416,7 @@ def summarize_platform_data(
         section.append("No agent usage data.")
     if as_data.get("skills"):
         section.append(
-            f"\n### Skills ({as_data.get('unique_skills', 0)} unique, "
-            f"{as_data.get('total_skill_uses', 0)} total uses)"
+            f"\n### Skills ({as_data.get('unique_skills', 0)} unique, {as_data.get('total_skill_uses', 0)} total uses)"
         )
         for skill, count in list(as_data["skills"].items())[:15]:
             section.append(f"- {skill}: {count}")
@@ -437,8 +463,11 @@ def summarize_platform_data(
     section = ["## Composite Platform Health Score"]
     try:
         from claudealytics.analytics.aggregators.health_score_aggregator import compute_health_score
+
         health = compute_health_score(data)
-        section.append(f"- **Overall: {health.overall_score}/100** ({health.active_count}/{health.total_count} metrics)")
+        section.append(
+            f"- **Overall: {health.overall_score}/100** ({health.active_count}/{health.total_count} metrics)"
+        )
         for sub in health.sub_scores:
             score_str = f"{sub.score}/100" if sub.score is not None else "N/A"
             section.append(f"- {sub.label}: {score_str} — {sub.explanation}")
@@ -462,6 +491,7 @@ def _ensure_config_analysis(
 ) -> None:
     try:
         from claudealytics.analytics.config_analyzer import load_cached_analysis, run_full_analysis
+
         cached = load_cached_analysis()
         if cached is None:
             if progress_callback:
@@ -485,7 +515,7 @@ def generate_full_report(
     import shutil
 
     start = time.time()
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
 
     if progress_callback:
         progress_callback(0.05, "Checking config analysis...")
@@ -611,7 +641,7 @@ def generate_full_report(
 def _save_report_snapshot(report: FullReport) -> Path | None:
     try:
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y-%m-%d-%H%M%S")
         snapshot_path = REPORTS_DIR / f"report-{ts}.json"
         snapshot_path.write_text(report.model_dump_json(indent=2))
         return snapshot_path
@@ -636,11 +666,13 @@ def list_report_snapshots() -> list[dict]:
     for f in sorted(REPORTS_DIR.glob("report-*.json"), reverse=True):
         name = f.stem
         ts_part = name.replace("report-", "")
-        snapshots.append({
-            "path": str(f),
-            "filename": f.name,
-            "timestamp": ts_part,
-        })
+        snapshots.append(
+            {
+                "path": str(f),
+                "filename": f.name,
+                "timestamp": ts_part,
+            }
+        )
     return snapshots
 
 

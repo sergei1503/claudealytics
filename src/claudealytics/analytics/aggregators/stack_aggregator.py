@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import PurePosixPath
 
 import pandas as pd
-from collections import Counter
 
 # ── Extension → Language mapping ────────────────────────────────
 
@@ -163,6 +163,7 @@ def _classify_layer(file_path: str, ext: str) -> str:
 
 
 # ── Public API ──────────────────────────────────────────────────
+
 
 def compute_language_distribution(tool_calls: pd.DataFrame) -> pd.DataFrame:
     """File extension → language mapping with read/write/edit breakdowns."""
@@ -356,12 +357,16 @@ def compute_database_signals(tool_calls: pd.DataFrame) -> pd.DataFrame:
 def compute_project_profiles(tool_calls: pd.DataFrame, session_stats: pd.DataFrame) -> pd.DataFrame:
     """Per-project tech stack summary."""
     if tool_calls.empty or "file_path" not in tool_calls.columns:
-        return pd.DataFrame(columns=["project", "primary_language", "languages", "frameworks", "layer_split", "session_count"])
+        return pd.DataFrame(
+            columns=["project", "primary_language", "languages", "frameworks", "layer_split", "session_count"]
+        )
 
     # Derive project from file_path (first meaningful directory component)
     df = tool_calls[tool_calls["file_path"].notna() & (tool_calls["file_path"] != "")].copy()
     if df.empty:
-        return pd.DataFrame(columns=["project", "primary_language", "languages", "frameworks", "layer_split", "session_count"])
+        return pd.DataFrame(
+            columns=["project", "primary_language", "languages", "frameworks", "layer_split", "session_count"]
+        )
 
     df["extension"] = df["file_path"].apply(_get_extension)
     df["language"] = df["extension"].map(EXTENSION_LANGUAGE).fillna("Other")
@@ -393,22 +398,26 @@ def compute_project_profiles(tool_calls: pd.DataFrame, session_stats: pd.DataFra
         # Layer split
         layer_counts = grp["layer"].value_counts()
         total = layer_counts.sum()
-        layer_pcts = {l: round(c / total * 100) for l, c in layer_counts.items()} if total > 0 else {}
+        layer_pcts = {lyr: round(c / total * 100) for lyr, c in layer_counts.items()} if total > 0 else {}
 
         # Session count
         sess_count = grp["session_id"].nunique()
 
-        rows.append({
-            "project": str(project),
-            "primary_language": primary_lang,
-            "languages": ", ".join(top_langs),
-            "frameworks": ", ".join(sorted(fw_set)) if fw_set else "-",
-            "layer_split": " / ".join(f"{l}:{p}%" for l, p in sorted(layer_pcts.items(), key=lambda x: -x[1])),
-            "session_count": sess_count,
-        })
+        rows.append(
+            {
+                "project": str(project),
+                "primary_language": primary_lang,
+                "languages": ", ".join(top_langs),
+                "frameworks": ", ".join(sorted(fw_set)) if fw_set else "-",
+                "layer_split": " / ".join(f"{lyr}:{p}%" for lyr, p in sorted(layer_pcts.items(), key=lambda x: -x[1])),
+                "session_count": sess_count,
+            }
+        )
 
     if not rows:
-        return pd.DataFrame(columns=["project", "primary_language", "languages", "frameworks", "layer_split", "session_count"])
+        return pd.DataFrame(
+            columns=["project", "primary_language", "languages", "frameworks", "layer_split", "session_count"]
+        )
 
     result = pd.DataFrame(rows).sort_values("session_count", ascending=False)
     return result.reset_index(drop=True)

@@ -59,13 +59,15 @@ def parse_agent_executions(
             # Fallback: regex extraction for malformed JSON
             match = _AGENT_RE.search(line)
             if match:
-                executions.append(AgentExecution(
-                    timestamp=match.group(1),
-                    session_id=match.group(2),
-                    type=match.group(3),
-                    agent=match.group(4),
-                    description=match.group(5),
-                ))
+                executions.append(
+                    AgentExecution(
+                        timestamp=match.group(1),
+                        session_id=match.group(2),
+                        type=match.group(3),
+                        agent=match.group(4),
+                        description=match.group(5),
+                    )
+                )
 
     return executions
 
@@ -96,12 +98,14 @@ def parse_skill_executions(
             # Fallback: regex extraction
             match = _SKILL_RE.search(line)
             if match:
-                executions.append(SkillExecution(
-                    timestamp=match.group(1),
-                    session_id=match.group(2),
-                    type=match.group(3),
-                    skill=match.group(4),
-                    args=match.group(5),
-                ))
+                executions.append(
+                    SkillExecution(
+                        timestamp=match.group(1),
+                        session_id=match.group(2),
+                        type=match.group(3),
+                        skill=match.group(4),
+                        args=match.group(5),
+                    )
+                )
 
     return executions

@@ -9,6 +9,7 @@ import pytest
 
 class _FakeColumn:
     """Mimics st.columns() context manager and .metric() calls."""
+
     def metric(self, *args, **kwargs):
         pass
 

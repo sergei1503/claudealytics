@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from claudealytics.models.schemas import ScanIssue
@@ -79,12 +78,14 @@ def scan_claude_md_files() -> tuple[list[Path], list[ScanIssue]]:
         try:
             content = filepath.read_text()
         except Exception:
-            issues.append(ScanIssue(
-                severity="high",
-                category="error",
-                message=f"Cannot read CLAUDE.md file",
-                file=str(filepath),
-            ))
+            issues.append(
+                ScanIssue(
+                    severity="high",
+                    category="error",
+                    message="Cannot read CLAUDE.md file",
+                    file=str(filepath),
+                )
+            )
             continue
 
         # Check for required sections in global CLAUDE.md
@@ -92,23 +93,27 @@ def scan_claude_md_files() -> tuple[list[Path], list[ScanIssue]]:
             required_sections = ["Stack Profiles", "Routing Protocol", "Quick Reference"]
             for section in required_sections:
                 if section not in content:
-                    issues.append(ScanIssue(
-                        severity="medium",
-                        category="missing",
-                        message=f"Missing expected section: {section}",
-                        file=str(filepath),
-                        suggestion=f"Add a '## {section}' section",
-                    ))
+                    issues.append(
+                        ScanIssue(
+                            severity="medium",
+                            category="missing",
+                            message=f"Missing expected section: {section}",
+                            file=str(filepath),
+                            suggestion=f"Add a '## {section}' section",
+                        )
+                    )
 
         # Check for profile declaration in project CLAUDE.md files
         if filepath != CLAUDE_HOME / "CLAUDE.md":
             if "## Profile" not in content and "**Stack:**" not in content:
-                issues.append(ScanIssue(
-                    severity="low",
-                    category="inconsistency",
-                    message="Project CLAUDE.md missing stack profile declaration",
-                    file=str(filepath),
-                    suggestion="Add a ## Profile section with **Stack:** declaration",
-                ))
+                issues.append(
+                    ScanIssue(
+                        severity="low",
+                        category="inconsistency",
+                        message="Project CLAUDE.md missing stack profile declaration",
+                        file=str(filepath),
+                        suggestion="Add a ## Profile section with **Stack:** declaration",
+                    )
+                )
 
     return files, issues

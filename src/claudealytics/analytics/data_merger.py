@@ -6,9 +6,6 @@ Combines data from:
 2. Conversation archives (~/.claude/projects/) - historical, goes back to Jan 2025
 """
 
-from typing import List, Dict, Tuple, Set
-from datetime import datetime
-
 from claudealytics.models.schemas import AgentExecution, SkillExecution
 
 
@@ -23,18 +20,15 @@ def _create_dedup_key(timestamp: str, session_id: str, name: str) -> str:
     return f"{timestamp_truncated}|{session_id}|{name}"
 
 
-def merge_agent_executions(
-    log_execs: List[AgentExecution],
-    conv_execs: List[dict]
-) -> List[AgentExecution]:
+def merge_agent_executions(log_execs: list[AgentExecution], conv_execs: list[dict]) -> list[AgentExecution]:
     """
     Merge agent executions from logs and conversations, deduplicating.
 
     Execution log entries take precedence as they have outcome_preview.
     """
     # Track seen executions to avoid duplicates
-    seen_keys: Set[str] = set()
-    merged: List[AgentExecution] = []
+    seen_keys: set[str] = set()
+    merged: list[AgentExecution] = []
 
     # Add all log executions first (they have priority)
     for exec in log_execs:
@@ -53,7 +47,7 @@ def merge_agent_executions(
             outcome_preview="",  # Not available from conversations
             status=conv_exec.get("status", "unknown"),
             total_tokens=0,  # Not available from conversations
-            model=conv_exec.get("model", "unknown")
+            model=conv_exec.get("model", "unknown"),
         )
 
         key = _create_dedup_key(agent_exec.timestamp, agent_exec.session_id, agent_exec.agent_type)
@@ -67,18 +61,15 @@ def merge_agent_executions(
     return merged
 
 
-def merge_skill_executions(
-    log_execs: List[SkillExecution],
-    conv_execs: List[dict]
-) -> List[SkillExecution]:
+def merge_skill_executions(log_execs: list[SkillExecution], conv_execs: list[dict]) -> list[SkillExecution]:
     """
     Merge skill executions from logs and conversations, deduplicating.
 
     Execution log entries take precedence as they have outcome_preview.
     """
     # Track seen executions to avoid duplicates
-    seen_keys: Set[str] = set()
-    merged: List[SkillExecution] = []
+    seen_keys: set[str] = set()
+    merged: list[SkillExecution] = []
 
     # Add all log executions first (they have priority)
     for exec in log_execs:
@@ -95,7 +86,7 @@ def merge_skill_executions(
             skill_name=conv_exec["skill_name"],
             args=conv_exec.get("args", ""),
             outcome_preview="",  # Not available from conversations
-            status=conv_exec.get("status", "unknown")
+            status=conv_exec.get("status", "unknown"),
         )
 
         key = _create_dedup_key(skill_exec.timestamp, skill_exec.session_id, skill_exec.skill_name)

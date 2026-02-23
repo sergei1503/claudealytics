@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
+import plotly.express as px
+import streamlit as st
 
-from claudealytics.models.schemas import StatsCache
 from claudealytics.analytics.cost_calculator import (
-    estimate_model_costs,
     daily_cost_estimate,
+    estimate_model_costs,
     total_estimated_cost,
 )
+from claudealytics.models.schemas import StatsCache
 
 
 def render(stats: StatsCache):
@@ -29,8 +28,9 @@ def render(stats: StatsCache):
         avg_daily = daily_costs["estimated_cost"].mean()
         col2.metric("Avg Daily Cost", f"${avg_daily:,.2f}")
         max_day = daily_costs.loc[daily_costs["estimated_cost"].idxmax()]
-        col3.metric("Peak Day Cost", f"${max_day['estimated_cost']:,.2f}",
-                     help=f"On {max_day['date'].strftime('%Y-%m-%d')}")
+        col3.metric(
+            "Peak Day Cost", f"${max_day['estimated_cost']:,.2f}", help=f"On {max_day['date'].strftime('%Y-%m-%d')}"
+        )
 
     st.divider()
 
@@ -49,9 +49,13 @@ def render(stats: StatsCache):
 
     # Daily cost bar chart
     if not filtered_daily.empty:
-        st.subheader("Daily Estimated Cost", help="Per-day API cost estimate based on token counts and public Anthropic pricing.")
+        st.subheader(
+            "Daily Estimated Cost", help="Per-day API cost estimate based on token counts and public Anthropic pricing."
+        )
         fig = px.bar(
-            filtered_daily, x="date", y="estimated_cost",
+            filtered_daily,
+            x="date",
+            y="estimated_cost",
             labels={"date": "Date", "estimated_cost": "Cost (USD)"},
             color_discrete_sequence=["#f59e0b"],
         )
@@ -65,7 +69,9 @@ def render(stats: StatsCache):
         filtered_daily = filtered_daily.copy()
         filtered_daily["cumulative"] = filtered_daily["estimated_cost"].cumsum()
         fig = px.line(
-            filtered_daily, x="date", y="cumulative",
+            filtered_daily,
+            x="date",
+            y="cumulative",
             labels={"date": "Date", "cumulative": "Cumulative Cost (USD)"},
             color_discrete_sequence=["#ef4444"],
             markers=True,
@@ -75,7 +81,10 @@ def render(stats: StatsCache):
 
     # Cost breakdown by model (pie chart)
     if not model_costs.empty:
-        st.subheader("Cost Breakdown by Model", help="Total estimated cost split by model. Includes input, output, cache read, and cache creation token costs.")
+        st.subheader(
+            "Cost Breakdown by Model",
+            help="Total estimated cost split by model. Includes input, output, cache read, and cache creation token costs.",
+        )
         model_costs = model_costs.copy()
         model_costs["model_short"] = model_costs["model"].apply(_short_model_name)
 
@@ -83,7 +92,9 @@ def render(stats: StatsCache):
 
         with col_pie:
             fig = px.pie(
-                model_costs, values="total_cost", names="model_short",
+                model_costs,
+                values="total_cost",
+                names="model_short",
                 color_discrete_sequence=px.colors.qualitative.Set2,
             )
             fig.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0))
@@ -91,20 +102,25 @@ def render(stats: StatsCache):
 
         with col_table:
             st.dataframe(
-                model_costs[["model_short", "input_cost", "output_cost", "cache_read_cost", "cache_creation_cost", "total_cost"]]
-                .rename(columns={
-                    "model_short": "Model",
-                    "input_cost": "Input $",
-                    "output_cost": "Output $",
-                    "cache_read_cost": "Cache Read $",
-                    "cache_creation_cost": "Cache Create $",
-                    "total_cost": "Total $",
-                }),
+                model_costs[
+                    ["model_short", "input_cost", "output_cost", "cache_read_cost", "cache_creation_cost", "total_cost"]
+                ].rename(
+                    columns={
+                        "model_short": "Model",
+                        "input_cost": "Input $",
+                        "output_cost": "Output $",
+                        "cache_read_cost": "Cache Read $",
+                        "cache_creation_cost": "Cache Create $",
+                        "total_cost": "Total $",
+                    }
+                ),
                 hide_index=True,
                 use_container_width=True,
             )
 
-    st.caption("⚠️ Cost estimates based on public Anthropic API pricing. Actual costs via Claude Code subscription may differ.")
+    st.caption(
+        "⚠️ Cost estimates based on public Anthropic API pricing. Actual costs via Claude Code subscription may differ."
+    )
 
 
 def _short_model_name(model: str) -> str:

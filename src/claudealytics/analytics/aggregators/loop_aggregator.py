@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pandas as pd
 from collections import Counter
+
+import pandas as pd
 
 
 def compute_tool_sequences(tool_calls: pd.DataFrame) -> pd.DataFrame:
@@ -38,7 +39,6 @@ def compute_error_recovery(tool_calls: pd.DataFrame, error_results: pd.DataFrame
         return pd.DataFrame(columns=["failed_tool", "recovery_action", "count"])
 
     # For each session, find the tool after a failed tool
-    recovery_pairs = []
     for session_id in tool_calls["session_id"].unique():
         session_tools = tool_calls[tool_calls["session_id"] == session_id].sort_values("timestamp")
         tool_list = session_tools["tool_name"].tolist()
@@ -62,12 +62,12 @@ def compute_discipline(session_stats: pd.DataFrame) -> pd.DataFrame:
     if session_stats.empty:
         return pd.DataFrame()
 
-    df = session_stats[["session_id", "date", "project",
-                         "writes_with_prior_read_count",
-                         "writes_total_count"]].copy()
+    df = session_stats[["session_id", "date", "project", "writes_with_prior_read_count", "writes_total_count"]].copy()
     df["read_before_write_pct"] = (
-        df["writes_with_prior_read_count"] / df["writes_total_count"] * 100
-    ).where(df["writes_total_count"] > 0, 0).round(1)
+        (df["writes_with_prior_read_count"] / df["writes_total_count"] * 100)
+        .where(df["writes_total_count"] > 0, 0)
+        .round(1)
+    )
     return df
 
 
@@ -79,8 +79,10 @@ def compute_daily_discipline(session_stats: pd.DataFrame) -> pd.DataFrame:
     df = session_stats[["date", "writes_with_prior_read_count", "writes_total_count"]].copy()
     daily = df.groupby("date").sum().reset_index()
     daily["read_before_write_pct"] = (
-        daily["writes_with_prior_read_count"] / daily["writes_total_count"] * 100
-    ).where(daily["writes_total_count"] > 0, 0).round(1)
+        (daily["writes_with_prior_read_count"] / daily["writes_total_count"] * 100)
+        .where(daily["writes_total_count"] > 0, 0)
+        .round(1)
+    )
     return daily
 
 

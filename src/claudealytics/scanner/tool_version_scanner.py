@@ -144,6 +144,7 @@ def _compare_versions(installed: str, latest: str) -> bool:
     """Return True if installed >= latest. Uses packaging if available, else string compare."""
     try:
         from packaging.version import Version
+
         return Version(installed) >= Version(latest)
     except Exception:
         return installed == latest

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from claudealytics.models.schemas import StatsCache
 from claudealytics.analytics.parsers.token_miner import mine_daily_tokens
+from claudealytics.models.schemas import StatsCache
 
 
 def daily_tokens_by_model(stats: StatsCache) -> pd.DataFrame:
@@ -37,14 +37,16 @@ def model_usage_summary(stats: StatsCache) -> pd.DataFrame:
     rows = []
     for model, usage in stats.modelUsage.items():
         total = usage.inputTokens + usage.outputTokens
-        rows.append({
-            "model": model,
-            "input_tokens": usage.inputTokens,
-            "output_tokens": usage.outputTokens,
-            "cache_read": usage.cacheReadInputTokens,
-            "cache_creation": usage.cacheCreationInputTokens,
-            "total_tokens": total,
-        })
+        rows.append(
+            {
+                "model": model,
+                "input_tokens": usage.inputTokens,
+                "output_tokens": usage.outputTokens,
+                "cache_read": usage.cacheReadInputTokens,
+                "cache_creation": usage.cacheCreationInputTokens,
+                "total_tokens": total,
+            }
+        )
 
     if not rows:
         return pd.DataFrame()

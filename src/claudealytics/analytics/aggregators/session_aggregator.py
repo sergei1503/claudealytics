@@ -12,21 +12,21 @@ from claudealytics.models.schemas import SessionInfo
 def sessions_to_dataframe(sessions: list[SessionInfo]) -> pd.DataFrame:
     """Convert session list to a DataFrame for analysis."""
     if not sessions:
-        return pd.DataFrame(
-            columns=["date", "session_id", "project", "duration_minutes", "message_count", "hour"]
-        )
+        return pd.DataFrame(columns=["date", "session_id", "project", "duration_minutes", "message_count", "hour"])
 
     rows = []
     for s in sessions:
         hour = s.start_time.hour if s.start_time else 0
-        rows.append({
-            "date": s.date,
-            "session_id": s.session_id,
-            "project": s.project,
-            "duration_minutes": s.duration_minutes,
-            "message_count": s.message_count,
-            "hour": hour,
-        })
+        rows.append(
+            {
+                "date": s.date,
+                "session_id": s.session_id,
+                "project": s.project,
+                "duration_minutes": s.duration_minutes,
+                "message_count": s.message_count,
+                "hour": hour,
+            }
+        )
 
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"])
@@ -38,12 +38,16 @@ def daily_session_stats(sessions_df: pd.DataFrame) -> pd.DataFrame:
     if sessions_df.empty:
         return pd.DataFrame()
 
-    grouped = sessions_df.groupby("date").agg(
-        session_count=("session_id", "count"),
-        avg_duration=("duration_minutes", "mean"),
-        total_duration=("duration_minutes", "sum"),
-        total_messages=("message_count", "sum"),
-    ).reset_index()
+    grouped = (
+        sessions_df.groupby("date")
+        .agg(
+            session_count=("session_id", "count"),
+            avg_duration=("duration_minutes", "mean"),
+            total_duration=("duration_minutes", "sum"),
+            total_messages=("message_count", "sum"),
+        )
+        .reset_index()
+    )
 
     return grouped.sort_values("date")
 

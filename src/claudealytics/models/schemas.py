@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+
 from pydantic import BaseModel, Field
+
 
 class DailyActivity(BaseModel):
     date: str
@@ -46,6 +48,7 @@ class StatsCache(BaseModel):
     hourCounts: dict[str, int] = Field(default_factory=dict)
     totalSpeculationTimeSavedMs: int = 0
 
+
 class AgentExecution(BaseModel):
     timestamp: str
     session_id: str = ""
@@ -84,6 +87,7 @@ class SkillExecution(BaseModel):
             data["skill"] = data["skill_name"]
         super().__init__(**data)
 
+
 class ToolUsageStats(BaseModel):
     agents: dict[str, int] = Field(default_factory=dict)
     skills: dict[str, int] = Field(default_factory=dict)
@@ -91,6 +95,7 @@ class ToolUsageStats(BaseModel):
     daily_skills: dict[str, dict[str, int]] = Field(default_factory=dict)
     total_conversations: int = 0
     date_range: tuple[str, str] = ("", "")
+
 
 class SessionInfo(BaseModel):
     session_id: str
@@ -100,6 +105,7 @@ class SessionInfo(BaseModel):
     end_time: datetime | None = None
     duration_minutes: float = 0.0
     message_count: int = 0
+
 
 class ScanIssue(BaseModel):
     severity: str
@@ -136,6 +142,7 @@ class ScanReport(BaseModel):
     total_agents: int = 0
     total_skills: int = 0
     total_claude_md_files: int = 0
+
 
 class ConfigFileMetrics(BaseModel):
     path: str
@@ -199,11 +206,13 @@ class UnmappedPreferences(BaseModel):
     dismissed_agents: list[str] = Field(default_factory=list)
     dismissed_skills: list[str] = Field(default_factory=list)
 
+
 class ToolVersionResult(BaseModel):
     name: str
     installed_version: str | None = None
     latest_version: str | None = None
     status: str = "unknown"
+
 
 class ContentMineResult(BaseModel):
     session_stats: list[dict] = Field(default_factory=list)
@@ -211,6 +220,7 @@ class ContentMineResult(BaseModel):
     error_results: list[dict] = Field(default_factory=list)
     daily_stats: list[dict] = Field(default_factory=list)
     human_message_lengths: list[dict] = Field(default_factory=list)
+
 
 class HealthSubScore(BaseModel):
     name: str

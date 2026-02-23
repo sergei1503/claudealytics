@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
 
 
 def compute_complexity(session_stats: pd.DataFrame) -> pd.DataFrame:
@@ -11,15 +10,24 @@ def compute_complexity(session_stats: pd.DataFrame) -> pd.DataFrame:
     if session_stats.empty:
         return pd.DataFrame()
 
-    df = session_stats[["session_id", "date", "project",
-                         "total_messages", "total_tool_calls",
-                         "total_errors", "unique_files_touched",
-                         "total_input_tokens", "total_output_tokens",
-                         "sidechain_count", "cwd_switch_count"]].copy()
+    df = session_stats[
+        [
+            "session_id",
+            "date",
+            "project",
+            "total_messages",
+            "total_tool_calls",
+            "total_errors",
+            "unique_files_touched",
+            "total_input_tokens",
+            "total_output_tokens",
+            "sidechain_count",
+            "cwd_switch_count",
+        ]
+    ].copy()
 
     # Normalize each component 0-1 using min-max
-    components = ["total_messages", "total_tool_calls", "total_errors",
-                  "unique_files_touched", "sidechain_count"]
+    components = ["total_messages", "total_tool_calls", "total_errors", "unique_files_touched", "sidechain_count"]
     for col in components:
         col_min = df[col].min()
         col_max = df[col].max()
@@ -53,8 +61,8 @@ def compute_sidechain_daily(session_stats: pd.DataFrame) -> pd.DataFrame:
     df = session_stats[["date", "sidechain_count", "total_messages"]].copy()
     daily = df.groupby("date").sum().reset_index()
     daily["sidechain_pct"] = (
-        daily["sidechain_count"] / daily["total_messages"] * 100
-    ).where(daily["total_messages"] > 0, 0).round(1)
+        (daily["sidechain_count"] / daily["total_messages"] * 100).where(daily["total_messages"] > 0, 0).round(1)
+    )
     return daily
 
 
@@ -63,5 +71,4 @@ def compute_cwd_switches(session_stats: pd.DataFrame) -> pd.DataFrame:
     if session_stats.empty:
         return pd.DataFrame()
 
-    return session_stats[["session_id", "date", "project",
-                           "cwd_switch_count", "total_messages"]].copy()
+    return session_stats[["session_id", "date", "project", "cwd_switch_count", "total_messages"]].copy()

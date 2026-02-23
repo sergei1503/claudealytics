@@ -9,24 +9,23 @@ import streamlit as st
 
 from claudealytics.analytics.config_analyzer import load_cached_analysis, run_full_analysis
 from claudealytics.analytics.optimization_analyzer import (
+    analyze_agent_efficiency,
+    analyze_duplicate_guidance,
     analyze_unused_agents,
     analyze_unused_skills,
-    analyze_duplicate_guidance,
-    analyze_agent_efficiency,
 )
+from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
 from claudealytics.analytics.report_generator import (
     generate_full_report,
-    load_cached_report,
     list_report_snapshots,
+    load_cached_report,
     load_report_snapshot,
 )
 from claudealytics.analytics.report_verifier import verify_report
-from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
 from claudealytics.models.schemas import AgentExecution, SkillExecution, StatsCache
 from claudealytics.scanner.agent_scanner import scan_agents
-from claudealytics.scanner.skill_scanner import scan_skills
 from claudealytics.scanner.claude_md_scanner import scan_claude_md_files
-
+from claudealytics.scanner.skill_scanner import scan_skills
 
 TYPE_COLORS = {
     "agent": "#7c3aed",
@@ -76,8 +75,7 @@ def _render_full_report(stats, agent_execs, skill_execs):
     if run_clicked:
         progress_bar = st.progress(0, text="Starting report generation...")
         result = generate_full_report(
-            stats, agent_execs, skill_execs,
-            progress_callback=lambda pct, text: progress_bar.progress(pct, text=text)
+            stats, agent_execs, skill_execs, progress_callback=lambda pct, text: progress_bar.progress(pct, text=text)
         )
         progress_bar.empty()
         st.session_state.full_report_result = result
@@ -99,6 +97,7 @@ def _render_full_report(stats, agent_execs, skill_execs):
     if report.data_json:
         try:
             from claudealytics.analytics.aggregators.health_score_aggregator import compute_health_score
+
             health = compute_health_score(report.data_json)
 
             if health.active_count > 0:
@@ -218,7 +217,9 @@ def _render_config_cross_reference(agent_execs: list[AgentExecution], skill_exec
         col_d.metric("Defined but unused", len(unused_defined))
 
         if unmapped_used:
-            st.warning(f"**{len(unmapped_used)} agents** found in conversations but have no `.md` definition: {', '.join(sorted(unmapped_used))}")
+            st.warning(
+                f"**{len(unmapped_used)} agents** found in conversations but have no `.md` definition: {', '.join(sorted(unmapped_used))}"
+            )
         if unused_defined:
             st.info(f"**{len(unused_defined)} agents** defined but never invoked: {', '.join(sorted(unused_defined))}")
 
@@ -323,7 +324,10 @@ def _render_config_analysis():
     st.divider()
 
     if all_issues:
-        st.subheader("Quality Issues", help="Detected problems in config files: missing sections, redundancy, oversized files, inconsistencies, etc.")
+        st.subheader(
+            "Quality Issues",
+            help="Detected problems in config files: missing sections, redundancy, oversized files, inconsistencies, etc.",
+        )
         for severity in ("high", "medium", "low"):
             sev_issues = [i for i in all_issues if i.severity == severity]
             if not sev_issues:
@@ -339,7 +343,7 @@ def _render_config_analysis():
                     if issues[0].suggestion:
                         st.markdown(f"*Suggestion:* {issues[0].suggestion}")
                     if len(issues) > 1:
-                        with st.expander(f"Affected files"):
+                        with st.expander("Affected files"):
                             for issue in issues:
                                 st.caption(f"`{issue.file_path}`")
                     else:
@@ -349,7 +353,9 @@ def _render_config_analysis():
         st.success("No quality issues found!")
 
     if cached_analysis.complexity_metrics:
-        st.subheader("Complexity Metrics", help="Word count, section count, table density, and code block count per config file.")
+        st.subheader(
+            "Complexity Metrics", help="Word count, section count, table density, and code block count per config file."
+        )
         import plotly.express as px
 
         cdf = pd.DataFrame([m.model_dump() for m in cached_analysis.complexity_metrics])
@@ -357,28 +363,54 @@ def _render_config_analysis():
         cdf_sorted = cdf.sort_values("word_count", ascending=True)
 
         fig = px.bar(
-            cdf_sorted, x="word_count", y="name", color="type_label", orientation="h",
+            cdf_sorted,
+            x="word_count",
+            y="name",
+            color="type_label",
+            orientation="h",
             color_discrete_map={v: TYPE_COLORS[k] for k, v in TYPE_LABELS.items()},
             labels={"word_count": "Word Count", "name": "File", "type_label": "Type"},
         )
         fig.update_layout(height=max(300, len(cdf) * 28), yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
 
-        display_cols = ["name", "type_label", "lines", "word_count", "section_count", "table_count", "code_block_count", "avg_line_length"]
-        display_df = cdf[display_cols].rename(columns={
-            "name": "Name", "type_label": "Type", "lines": "Lines", "word_count": "Words",
-            "section_count": "Sections", "table_count": "Table Rows", "code_block_count": "Code Blocks",
-            "avg_line_length": "Avg Line Len",
-        }).sort_values("Words", ascending=False)
+        display_cols = [
+            "name",
+            "type_label",
+            "lines",
+            "word_count",
+            "section_count",
+            "table_count",
+            "code_block_count",
+            "avg_line_length",
+        ]
+        display_df = (
+            cdf[display_cols]
+            .rename(
+                columns={
+                    "name": "Name",
+                    "type_label": "Type",
+                    "lines": "Lines",
+                    "word_count": "Words",
+                    "section_count": "Sections",
+                    "table_count": "Table Rows",
+                    "code_block_count": "Code Blocks",
+                    "avg_line_length": "Avg Line Len",
+                }
+            )
+            .sort_values("Words", ascending=False)
+        )
         display_df["Avg Line Len"] = display_df["Avg Line Len"].round(1)
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     if cached_analysis.llm_reviews:
-        st.subheader("LLM Reviews", help="AI-generated clarity scores and improvement suggestions for each config file.")
+        st.subheader(
+            "LLM Reviews", help="AI-generated clarity scores and improvement suggestions for each config file."
+        )
 
         def _short_path(p: str) -> str:
             home = str(Path.home())
-            return "~" + p[len(home):] if p.startswith(home) else p
+            return "~" + p[len(home) :] if p.startswith(home) else p
 
         successful = {p: r for p, r in cached_analysis.llm_reviews.items() if r.clarity_score > 0}
         failed = {p: r for p, r in cached_analysis.llm_reviews.items() if r.clarity_score == 0}

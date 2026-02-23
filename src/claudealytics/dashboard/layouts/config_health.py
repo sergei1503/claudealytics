@@ -18,8 +18,8 @@ from claudealytics.scanner.config_size_scanner import (
 
 # Color map for file types
 TYPE_COLORS = {
-    "agent": "#7c3aed",          # purple
-    "skill": "#ec4899",          # pink
+    "agent": "#7c3aed",  # purple
+    "skill": "#ec4899",  # pink
     "global_claude_md": "#4f46e5",  # indigo
     "project_claude_md": "#6366f1",  # lighter indigo
 }
@@ -54,17 +54,19 @@ def render(
     with col4:
         total_bytes = sum(f.bytes for f in files)
         if total_bytes >= 1024 * 1024:
-            st.metric("Total Size", f"{total_bytes / (1024*1024):.1f} MB")
+            st.metric("Total Size", f"{total_bytes / (1024 * 1024):.1f} MB")
         else:
             st.metric("Total Size", f"{total_bytes / 1024:.1f} KB")
 
     st.divider()
 
     # Sub-tabs
-    tab_sizes, tab_history = st.tabs([
-        "📊 Current Sizes",
-        "📈 Size History",
-    ])
+    tab_sizes, tab_history = st.tabs(
+        [
+            "📊 Current Sizes",
+            "📈 Size History",
+        ]
+    )
 
     with tab_sizes:
         _render_current_sizes(files, agent_execs or [], skill_execs or [])
@@ -100,7 +102,10 @@ def _render_current_sizes(
                 last_used_map[key] = ex.timestamp
 
     # Horizontal bar chart: line count by file, colored by type
-    st.subheader("Line Count by File", help="Current line counts for all config files (agents, skills, CLAUDE.md). Larger files may need trimming.")
+    st.subheader(
+        "Line Count by File",
+        help="Current line counts for all config files (agents, skills, CLAUDE.md). Larger files may need trimming.",
+    )
     df_sorted = df.sort_values("lines", ascending=True)
 
     # Create unique labels to prevent Plotly from aggregating duplicate names
@@ -152,14 +157,20 @@ def _render_current_sizes(
     filtered_df = filtered_df.copy()
     filtered_df["last_used"] = filtered_df.apply(_get_last_used, axis=1)
 
-    display_df = filtered_df[["name", "path", "type_label", "lines", "bytes", "last_used"]].rename(columns={
-        "name": "Name",
-        "path": "Path",
-        "type_label": "Type",
-        "lines": "Lines",
-        "bytes": "Bytes",
-        "last_used": "Last Used",
-    }).sort_values("Lines", ascending=False)
+    display_df = (
+        filtered_df[["name", "path", "type_label", "lines", "bytes", "last_used"]]
+        .rename(
+            columns={
+                "name": "Name",
+                "path": "Path",
+                "type_label": "Type",
+                "lines": "Lines",
+                "bytes": "Bytes",
+                "last_used": "Last Used",
+            }
+        )
+        .sort_values("Lines", ascending=False)
+    )
     st.dataframe(
         display_df,
         use_container_width=True,
@@ -173,8 +184,7 @@ def _render_size_history():
     history = load_history()
 
     if len(history.snapshots) < 2:
-        st.info("Keep using the dashboard to accumulate history. "
-                "A new snapshot is recorded at most once per hour.")
+        st.info("Keep using the dashboard to accumulate history. A new snapshot is recorded at most once per hour.")
         if history.snapshots:
             st.caption(f"Current snapshot: {history.snapshots[0].timestamp}")
         return
@@ -201,9 +211,14 @@ def _render_size_history():
     df_by_type = pd.DataFrame([r for r in rows if "lines_by_type" in r])
 
     # Total lines over time
-    st.subheader("Total Config Lines Over Time", help="Sum of all config file line counts at each recorded snapshot. Tracks config bloat over time.")
+    st.subheader(
+        "Total Config Lines Over Time",
+        help="Sum of all config file line counts at each recorded snapshot. Tracks config bloat over time.",
+    )
     fig_total = px.line(
-        df_total, x="timestamp", y="total_lines",
+        df_total,
+        x="timestamp",
+        y="total_lines",
         labels={"timestamp": "Date", "total_lines": "Total Lines"},
     )
     fig_total.update_layout(height=350)
@@ -211,9 +226,15 @@ def _render_size_history():
 
     # Stacked area by type
     if not df_by_type.empty:
-        st.subheader("Lines by File Type Over Time", help="Config line counts broken down by file type (agents, skills, CLAUDE.md) over time.")
+        st.subheader(
+            "Lines by File Type Over Time",
+            help="Config line counts broken down by file type (agents, skills, CLAUDE.md) over time.",
+        )
         fig_area = px.area(
-            df_by_type, x="timestamp", y="lines_by_type", color="type",
+            df_by_type,
+            x="timestamp",
+            y="lines_by_type",
+            color="type",
             labels={"timestamp": "Date", "lines_by_type": "Lines", "type": "Type"},
         )
         fig_area.update_layout(height=350)
@@ -258,9 +279,15 @@ def _render_per_file_history(history):
 
     if rows:
         df = pd.DataFrame(rows)
-        st.subheader("Per-File Lines Over Time", help="Line count history for selected individual files. Useful for tracking growth of specific agents or skills.")
+        st.subheader(
+            "Per-File Lines Over Time",
+            help="Line count history for selected individual files. Useful for tracking growth of specific agents or skills.",
+        )
         fig = px.line(
-            df, x="timestamp", y="lines", color="file",
+            df,
+            x="timestamp",
+            y="lines",
+            color="file",
             labels={"timestamp": "Date", "lines": "Lines", "file": "File"},
         )
         fig.update_layout(height=400)

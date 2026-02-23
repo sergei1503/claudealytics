@@ -14,10 +14,8 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import pandas as pd
-
 
 # ── Regex patterns (compiled once) ──────────────────────────────
 
@@ -41,15 +39,37 @@ _SELF_CORRECTION_RE = re.compile(
 )
 _REASONING_MARKER_RE = re.compile(r"^(Note:|Approach:|Decision:)", re.MULTILINE)
 _BASH_CMD_CATEGORY = {
-    "git": "git", "npm": "npm", "npx": "npm", "yarn": "npm", "pnpm": "npm",
-    "docker": "docker", "kubectl": "docker", "pip": "pip", "python": "python",
-    "python3": "python", "node": "node", "tsx": "node", "bun": "npm",
-    "cargo": "cargo", "make": "build", "cmake": "build",
-    "cd": "navigation", "ls": "navigation", "pwd": "navigation",
-    "cat": "file_ops", "head": "file_ops", "tail": "file_ops",
-    "grep": "search", "rg": "search", "find": "search",
-    "curl": "network", "wget": "network",
-    "pm2": "process", "pkill": "process", "kill": "process", "lsof": "process",
+    "git": "git",
+    "npm": "npm",
+    "npx": "npm",
+    "yarn": "npm",
+    "pnpm": "npm",
+    "docker": "docker",
+    "kubectl": "docker",
+    "pip": "pip",
+    "python": "python",
+    "python3": "python",
+    "node": "node",
+    "tsx": "node",
+    "bun": "npm",
+    "cargo": "cargo",
+    "make": "build",
+    "cmake": "build",
+    "cd": "navigation",
+    "ls": "navigation",
+    "pwd": "navigation",
+    "cat": "file_ops",
+    "head": "file_ops",
+    "tail": "file_ops",
+    "grep": "search",
+    "rg": "search",
+    "find": "search",
+    "curl": "network",
+    "wget": "network",
+    "pm2": "process",
+    "pkill": "process",
+    "kill": "process",
+    "lsof": "process",
 }
 
 # ── Install / test / edit classification patterns ─────────────
@@ -68,16 +88,16 @@ _TEST_CMD_RE = re.compile(
     r"\b(?:npx\s+(?:jest|vitest|mocha))\b|"
     r"\b(?:npm\s+(?:run\s+)?test|yarn\s+test|pnpm\s+test)\b|"
     r"\b(?:cargo\s+test|go\s+test)\b|"
-    r"(?:^|\s|&&\s*|;\s*)(?:jest|vitest|mocha)\b", re.I)
+    r"(?:^|\s|&&\s*|;\s*)(?:jest|vitest|mocha)\b",
+    re.I,
+)
 
-_INSTALL_CMD_RE = re.compile(
-    r"\b(?:pip3?\s+install|npm\s+install|yarn\s+add|pnpm\s+add|cargo\s+add|go\s+get)\b", re.I)
+_INSTALL_CMD_RE = re.compile(r"\b(?:pip3?\s+install|npm\s+install|yarn\s+add|pnpm\s+add|cargo\s+add|go\s+get)\b", re.I)
 
-_IMPORT_LINE_RE = re.compile(
-    r"^\s*(?:import |from \S+ import |require\(|const .+ = require|export )", re.M)
+_IMPORT_LINE_RE = re.compile(r"^\s*(?:import |from \S+ import |require\(|const .+ = require|export )", re.M)
 
 
-def _extract_install_packages(cmd: str) -> Optional[str]:
+def _extract_install_packages(cmd: str) -> str | None:
     """Extract installed packages from a command string.
 
     Returns 'manager:pkg1,manager:pkg2' or None.
@@ -139,13 +159,13 @@ class ContentMiner:
 
     CACHE_TTL_SECONDS = 3600  # 1 hour
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Path | None = None):
         self.projects_dir = Path.home() / ".claude" / "projects"
         self.cache_dir = cache_dir or Path.home() / ".cache" / "claudealytics"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_path = self.cache_dir / "content-mine.json"
 
-    def _get_all_jsonl_files(self) -> List[Path]:
+    def _get_all_jsonl_files(self) -> list[Path]:
         """Get ALL JSONL files recursively, including agent-*.jsonl."""
         if not self.projects_dir.exists():
             return []
@@ -155,7 +175,7 @@ class ContentMiner:
                 files.extend(project_dir.rglob("*.jsonl"))
         return sorted(files, key=lambda f: f.stat().st_mtime)
 
-    def _load_cache(self) -> Optional[Dict]:
+    def _load_cache(self) -> dict | None:
         if not self.cache_path.exists():
             return None
         try:
@@ -167,7 +187,7 @@ class ContentMiner:
             pass
         return None
 
-    def _save_cache(self, data: Dict):
+    def _save_cache(self, data: dict):
         cache_data = {"timestamp": datetime.now().timestamp(), "data": data}
         with open(self.cache_path, "w") as f:
             json.dump(cache_data, f)
@@ -189,7 +209,7 @@ class ContentMiner:
             pass
         return "unknown"
 
-    def mine(self, use_cache: bool = True) -> Dict:
+    def mine(self, use_cache: bool = True) -> dict:
         """Run single-pass extraction over all JSONL files.
 
         Returns dict with keys: session_stats, tool_calls, error_results,
@@ -202,45 +222,47 @@ class ContentMiner:
 
         # ── Accumulators ──
         # session_id -> session-level counters
-        sessions: Dict[str, Dict] = {}
+        sessions: dict[str, dict] = {}
         # Per-session message ordering for autonomy calculation
-        session_msg_roles: Dict[str, List[str]] = defaultdict(list)
+        session_msg_roles: dict[str, list[str]] = defaultdict(list)
         # Per-session file tracking (for unique files count)
-        session_files: Dict[str, set] = defaultdict(set)
+        session_files: dict[str, set] = defaultdict(set)
         # Per-session cwd tracking
-        session_cwds: Dict[str, set] = defaultdict(set)
+        session_cwds: dict[str, set] = defaultdict(set)
         # Per-session read-before-write tracking: file_path -> was_read
-        session_reads: Dict[str, set] = defaultdict(set)
+        session_reads: dict[str, set] = defaultdict(set)
         # tool_use_id -> (session_id, tool_name, file_path) for matching results
-        pending_tool_uses: Dict[str, tuple] = {}
+        pending_tool_uses: dict[str, tuple] = {}
 
         # Output lists
-        tool_calls: List[Dict] = []
-        error_results: List[Dict] = []
-        human_message_lengths: List[Dict] = []
+        tool_calls: list[dict] = []
+        error_results: list[dict] = []
+        human_message_lengths: list[dict] = []
 
         # Daily aggregation
-        daily: Dict[str, Dict] = defaultdict(lambda: {
-            "date": "",
-            "human_messages": 0,
-            "assistant_messages": 0,
-            "total_tool_calls": 0,
-            "total_errors": 0,
-            "intervention_correction": 0,
-            "intervention_approval": 0,
-            "intervention_guidance": 0,
-            "intervention_new_instruction": 0,
-            "thinking_blocks": 0,
-            "decision_count": 0,
-            "self_correction_count": 0,
-            "reasoning_marker_count": 0,
-            "total_text_length_human": 0,
-            "total_text_length_assistant": 0,
-            "total_thinking_length": 0,
-            "messages_with_code_blocks": 0,
-            "unique_sessions": set(),
-            "unique_files": set(),
-        })
+        daily: dict[str, dict] = defaultdict(
+            lambda: {
+                "date": "",
+                "human_messages": 0,
+                "assistant_messages": 0,
+                "total_tool_calls": 0,
+                "total_errors": 0,
+                "intervention_correction": 0,
+                "intervention_approval": 0,
+                "intervention_guidance": 0,
+                "intervention_new_instruction": 0,
+                "thinking_blocks": 0,
+                "decision_count": 0,
+                "self_correction_count": 0,
+                "reasoning_marker_count": 0,
+                "total_text_length_human": 0,
+                "total_text_length_assistant": 0,
+                "total_thinking_length": 0,
+                "messages_with_code_blocks": 0,
+                "unique_sessions": set(),
+                "unique_files": set(),
+            }
+        )
 
         for file_path in self._get_all_jsonl_files():
             project_name = self._extract_project_name(file_path)
@@ -275,7 +297,7 @@ class ContentMiner:
                         cwd = data.get("cwd", "")
                         git_branch = data.get("gitBranch", "")
                         uuid = data.get("uuid", "")
-                        parent_uuid = data.get("parentUuid", "")
+                        data.get("parentUuid", "")
 
                         # Initialize session if needed
                         if session_id not in sessions:
@@ -354,12 +376,14 @@ class ContentMiner:
                                         content_length = len(c) if isinstance(c, str) else 0
 
                                         if is_error and tool_use_id:
-                                            error_results.append({
-                                                "session_id": session_id,
-                                                "timestamp": timestamp,
-                                                "tool_use_id": tool_use_id,
-                                                "content_length": content_length,
-                                            })
+                                            error_results.append(
+                                                {
+                                                    "session_id": session_id,
+                                                    "timestamp": timestamp,
+                                                    "tool_use_id": tool_use_id,
+                                                    "content_length": content_length,
+                                                }
+                                            )
                                             s["total_errors"] += 1
                                             d["total_errors"] += 1
                                 elif isinstance(block, str):
@@ -389,9 +413,11 @@ class ContentMiner:
                                     classification = "approval"
                                 elif _CORRECTION_RE.search(full_text):
                                     classification = "correction"
-                                elif (_FILE_PATH_RE.search(full_text)
-                                      or _CODE_BLOCK_RE.search(full_text)
-                                      or word_count > 100):
+                                elif (
+                                    _FILE_PATH_RE.search(full_text)
+                                    or _CODE_BLOCK_RE.search(full_text)
+                                    or word_count > 100
+                                ):
                                     classification = "guidance"
 
                                 s[f"intervention_{classification}"] += 1
@@ -404,12 +430,14 @@ class ContentMiner:
                                 if _FILE_PATH_RE.search(full_text):
                                     s["human_with_file_paths_count"] += 1
 
-                                human_message_lengths.append({
-                                    "session_id": session_id,
-                                    "text_length": text_length,
-                                    "word_count": word_count,
-                                    "classification": classification,
-                                })
+                                human_message_lengths.append(
+                                    {
+                                        "session_id": session_id,
+                                        "text_length": text_length,
+                                        "word_count": word_count,
+                                        "classification": classification,
+                                    }
+                                )
 
                         # ── ASSISTANT MESSAGE ──
                         elif line_type == "assistant":
@@ -417,8 +445,8 @@ class ContentMiner:
                             d["assistant_messages"] += 1
                             session_msg_roles[session_id].append("assistant")
 
-                            model = msg.get("model", "")
-                            stop_reason = msg.get("stop_reason", "")
+                            msg.get("model", "")
+                            msg.get("stop_reason", "")
                             usage = msg.get("usage", {})
                             if isinstance(usage, dict):
                                 s["total_input_tokens"] += usage.get("input_tokens", 0) or 0
@@ -475,8 +503,6 @@ class ContentMiner:
                                     bytes_written = None
                                     command_category = None
                                     bash_command = None
-                                    subagent_type = None
-                                    skill_name = None
                                     install_packages = None
                                     is_test_command = False
                                     bash_description = None
@@ -536,33 +562,35 @@ class ContentMiner:
                                         fetch_url = inp.get("url", "")[:300] or None
 
                                     elif tool_name == "Task":
-                                        subagent_type = inp.get("subagent_type", "")
+                                        inp.get("subagent_type", "")
 
                                     elif tool_name == "Skill":
-                                        skill_name = inp.get("skill", "")
+                                        inp.get("skill", "")
 
                                     # Track for tool_result matching
                                     if tool_id:
                                         pending_tool_uses[tool_id] = (session_id, tool_name, file_path_val)
 
-                                    tool_calls.append({
-                                        "session_id": session_id,
-                                        "timestamp": timestamp,
-                                        "message_uuid": uuid,
-                                        "tool_name": tool_name,
-                                        "file_path": file_path_val,
-                                        "edit_delta": edit_delta,
-                                        "bytes_written": bytes_written,
-                                        "command_category": command_category,
-                                        "bash_command": bash_command,
-                                        "install_packages": install_packages,
-                                        "is_test_command": is_test_command,
-                                        "bash_description": bash_description,
-                                        "search_query": search_query,
-                                        "fetch_url": fetch_url,
-                                        "grep_pattern": grep_pattern,
-                                        "edit_category": edit_category,
-                                    })
+                                    tool_calls.append(
+                                        {
+                                            "session_id": session_id,
+                                            "timestamp": timestamp,
+                                            "message_uuid": uuid,
+                                            "tool_name": tool_name,
+                                            "file_path": file_path_val,
+                                            "edit_delta": edit_delta,
+                                            "bytes_written": bytes_written,
+                                            "command_category": command_category,
+                                            "bash_command": bash_command,
+                                            "install_packages": install_packages,
+                                            "is_test_command": is_test_command,
+                                            "bash_description": bash_description,
+                                            "search_query": search_query,
+                                            "fetch_url": fetch_url,
+                                            "grep_pattern": grep_pattern,
+                                            "edit_category": edit_category,
+                                        }
+                                    )
 
                             s["total_text_length_assistant"] += msg_text_length
                             d["total_text_length_assistant"] += msg_text_length
@@ -572,7 +600,7 @@ class ContentMiner:
                                 s["has_code_blocks"] += 1
                                 d["messages_with_code_blocks"] += 1
 
-            except (IOError, OSError):
+            except OSError:
                 continue
 
         # ── Post-process sessions: compute autonomy runs ──
@@ -614,7 +642,7 @@ class ContentMiner:
 
         return result
 
-    def mine_dataframes(self, use_cache: bool = True) -> Dict[str, pd.DataFrame]:
+    def mine_dataframes(self, use_cache: bool = True) -> dict[str, pd.DataFrame]:
         """Mine and return data as DataFrames for dashboard consumption."""
         raw = self.mine(use_cache=use_cache)
 
@@ -660,7 +688,7 @@ class ContentMiner:
             self.cache_path.unlink()
 
 
-def _compute_autonomy_runs(roles: List[str]) -> List[int]:
+def _compute_autonomy_runs(roles: list[str]) -> list[int]:
     """Compute consecutive assistant turn lengths between human messages."""
     runs = []
     current_run = 0
@@ -677,7 +705,7 @@ def _compute_autonomy_runs(roles: List[str]) -> List[int]:
 
 
 # Convenience function
-def mine_content(use_cache: bool = True) -> Dict[str, pd.DataFrame]:
+def mine_content(use_cache: bool = True) -> dict[str, pd.DataFrame]:
     """Mine conversation content from all JSONL files."""
     miner = ContentMiner()
     return miner.mine_dataframes(use_cache=use_cache)

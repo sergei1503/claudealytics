@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from claudealytics.models.schemas import (
@@ -80,7 +80,7 @@ def create_snapshot() -> ConfigSizeSnapshot:
     """Create a snapshot of current config file sizes."""
     files = measure_all_config_files()
     return ConfigSizeSnapshot(
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         files=files,
         total_lines=sum(f.lines for f in files),
         total_bytes=sum(f.bytes for f in files),
@@ -113,7 +113,7 @@ def record_snapshot() -> ConfigSizeSnapshot:
         last_ts = history.snapshots[-1].timestamp
         try:
             last_dt = datetime.fromisoformat(last_ts)
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if (now - last_dt).total_seconds() < 3600:
                 return history.snapshots[-1]
         except (ValueError, TypeError):

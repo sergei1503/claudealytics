@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import pandas as pd
 from collections import Counter
 from itertools import combinations
+
+import pandas as pd
 
 
 def compute_files_per_session(session_stats: pd.DataFrame) -> pd.DataFrame:
@@ -12,9 +13,9 @@ def compute_files_per_session(session_stats: pd.DataFrame) -> pd.DataFrame:
     if session_stats.empty:
         return pd.DataFrame()
 
-    return session_stats[["session_id", "date", "project",
-                           "total_reads", "total_writes", "total_edits",
-                           "unique_files_touched"]].copy()
+    return session_stats[
+        ["session_id", "date", "project", "total_reads", "total_writes", "total_edits", "unique_files_touched"]
+    ].copy()
 
 
 def compute_hot_files(tool_calls: pd.DataFrame, top_n: int = 50) -> pd.DataFrame:
@@ -76,14 +77,22 @@ def compute_change_volume(tool_calls: pd.DataFrame) -> pd.DataFrame:
     df = tool_calls.copy()
     df["date"] = df["timestamp"].dt.date
 
-    writes = df[df["tool_name"] == "Write"].groupby("date").agg(
-        write_count=("tool_name", "size"),
-        bytes_written=("bytes_written", lambda x: x.fillna(0).sum()),
+    writes = (
+        df[df["tool_name"] == "Write"]
+        .groupby("date")
+        .agg(
+            write_count=("tool_name", "size"),
+            bytes_written=("bytes_written", lambda x: x.fillna(0).sum()),
+        )
     )
 
-    edits = df[df["tool_name"] == "Edit"].groupby("date").agg(
-        edit_count=("tool_name", "size"),
-        edit_delta=("edit_delta", lambda x: x.fillna(0).sum()),
+    edits = (
+        df[df["tool_name"] == "Edit"]
+        .groupby("date")
+        .agg(
+            edit_count=("tool_name", "size"),
+            edit_delta=("edit_delta", lambda x: x.fillna(0).sum()),
+        )
     )
 
     result = writes.join(edits, how="outer").fillna(0).reset_index()

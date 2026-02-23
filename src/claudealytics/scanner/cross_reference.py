@@ -50,7 +50,7 @@ def _extract_routing_skills(content: str) -> list[str]:
         skills.add(match.group(1))
 
     # Match /skill-name patterns (slash commands)
-    for match in re.finditer(r'`/([a-z][a-z0-9-]+)`', content):
+    for match in re.finditer(r"`/([a-z][a-z0-9-]+)`", content):
         skills.add(match.group(1))
 
     return list(skills)
@@ -92,13 +92,15 @@ def cross_reference(
             if norm in actual_agent_normalized:
                 matched_agents.add(actual_agent_normalized[norm])
         elif ref not in builtin_agents and norm not in {_normalize(b) for b in builtin_agents}:
-            issues.append(ScanIssue(
-                severity="medium",
-                category="missing",
-                message=f"Agent '{ref}' referenced in CLAUDE.md but no agent file found",
-                file=str(CLAUDE_HOME / "CLAUDE.md"),
-                suggestion=f"Create {CLAUDE_HOME}/agents/{ref}.md or remove from routing table",
-            ))
+            issues.append(
+                ScanIssue(
+                    severity="medium",
+                    category="missing",
+                    message=f"Agent '{ref}' referenced in CLAUDE.md but no agent file found",
+                    file=str(CLAUDE_HOME / "CLAUDE.md"),
+                    suggestion=f"Create {CLAUDE_HOME}/agents/{ref}.md or remove from routing table",
+                )
+            )
         else:
             matched_agents.add(ref)
 
@@ -109,13 +111,15 @@ def cross_reference(
             continue
         if agent.name in builtin_agents:
             continue
-        issues.append(ScanIssue(
-            severity="low",
-            category="orphan",
-            message=f"Agent file '{agent.name}' exists but not referenced in CLAUDE.md",
-            file=agent.file_path,
-            suggestion="Add to Quick Reference table in CLAUDE.md or remove if unused",
-        ))
+        issues.append(
+            ScanIssue(
+                severity="low",
+                category="orphan",
+                message=f"Agent file '{agent.name}' exists but not referenced in CLAUDE.md",
+                file=agent.file_path,
+                suggestion="Add to Quick Reference table in CLAUDE.md or remove if unused",
+            )
+        )
 
     # Check for referenced skills that don't exist
     for ref in referenced_skills:
@@ -125,25 +129,29 @@ def cross_reference(
             if norm in actual_skill_normalized:
                 matched_skills.add(actual_skill_normalized[norm])
         else:
-            issues.append(ScanIssue(
-                severity="medium",
-                category="missing",
-                message=f"Skill '{ref}' referenced in CLAUDE.md but no skill directory found",
-                file=str(CLAUDE_HOME / "CLAUDE.md"),
-                suggestion=f"Create {CLAUDE_HOME}/skills/{ref}/SKILL.md or remove from routing table",
-            ))
+            issues.append(
+                ScanIssue(
+                    severity="medium",
+                    category="missing",
+                    message=f"Skill '{ref}' referenced in CLAUDE.md but no skill directory found",
+                    file=str(CLAUDE_HOME / "CLAUDE.md"),
+                    suggestion=f"Create {CLAUDE_HOME}/skills/{ref}/SKILL.md or remove from routing table",
+                )
+            )
 
     # Check for skill directories not referenced
     skill_ref_normalized = {_normalize(r) for r in referenced_skills}
     for skill in skills:
         if skill.name in matched_skills or _normalize(skill.name) in skill_ref_normalized:
             continue
-        issues.append(ScanIssue(
-            severity="low",
-            category="orphan",
-            message=f"Skill '{skill.name}' exists but not referenced in CLAUDE.md",
-            file=skill.file_path,
-            suggestion="Add to Skills table in CLAUDE.md or remove if unused",
-        ))
+        issues.append(
+            ScanIssue(
+                severity="low",
+                category="orphan",
+                message=f"Skill '{skill.name}' exists but not referenced in CLAUDE.md",
+                file=skill.file_path,
+                suggestion="Add to Skills table in CLAUDE.md or remove if unused",
+            )
+        )
 
     return issues

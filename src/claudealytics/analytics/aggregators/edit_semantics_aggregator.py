@@ -6,14 +6,28 @@ from pathlib import PurePosixPath
 
 import pandas as pd
 
-
 _EXTENSION_LANGUAGE: dict[str, str] = {
-    ".py": "Python", ".ts": "TypeScript", ".tsx": "TypeScript",
-    ".js": "JavaScript", ".jsx": "JavaScript", ".java": "Java",
-    ".go": "Go", ".rs": "Rust", ".rb": "Ruby", ".php": "PHP",
-    ".swift": "Swift", ".kt": "Kotlin", ".c": "C", ".cpp": "C++",
-    ".cs": "C#", ".css": "CSS", ".html": "HTML", ".vue": "Vue",
-    ".svelte": "Svelte", ".sql": "SQL", ".sh": "Shell",
+    ".py": "Python",
+    ".ts": "TypeScript",
+    ".tsx": "TypeScript",
+    ".js": "JavaScript",
+    ".jsx": "JavaScript",
+    ".java": "Java",
+    ".go": "Go",
+    ".rs": "Rust",
+    ".rb": "Ruby",
+    ".php": "PHP",
+    ".swift": "Swift",
+    ".kt": "Kotlin",
+    ".c": "C",
+    ".cpp": "C++",
+    ".cs": "C#",
+    ".css": "CSS",
+    ".html": "HTML",
+    ".vue": "Vue",
+    ".svelte": "Svelte",
+    ".sql": "SQL",
+    ".sh": "Shell",
 }
 
 
@@ -51,10 +65,14 @@ def compute_edit_complexity(tool_calls: pd.DataFrame) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["timestamp"]).dt.date
     df["abs_delta"] = df["edit_delta"].abs()
 
-    result = df.groupby("date").agg(
-        avg_delta=("abs_delta", "mean"),
-        edit_count=("abs_delta", "size"),
-    ).reset_index()
+    result = (
+        df.groupby("date")
+        .agg(
+            avg_delta=("abs_delta", "mean"),
+            edit_count=("abs_delta", "size"),
+        )
+        .reset_index()
+    )
 
     result["avg_delta"] = result["avg_delta"].round(1)
     return result.sort_values("date").reset_index(drop=True)
@@ -68,10 +86,7 @@ def compute_import_tracking(tool_calls: pd.DataFrame) -> pd.DataFrame:
     if tool_calls.empty or "edit_category" not in tool_calls.columns:
         return pd.DataFrame(columns=["language", "import_count"])
 
-    df = tool_calls[
-        (tool_calls["edit_category"] == "import_add") &
-        (tool_calls["file_path"].notna())
-    ].copy()
+    df = tool_calls[(tool_calls["edit_category"] == "import_add") & (tool_calls["file_path"].notna())].copy()
 
     if df.empty:
         return pd.DataFrame(columns=["language", "import_count"])

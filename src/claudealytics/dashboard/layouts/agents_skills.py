@@ -6,21 +6,25 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-import streamlit as st
-import plotly.express as px
 import pandas as pd
+import plotly.express as px
+import streamlit as st
 
-from claudealytics.models.schemas import (
-    AgentExecution, AgentInfo, SkillExecution, SkillInfo, ToolVersionResult,
-    UnmappedPreferences,
-)
 from claudealytics.analytics.aggregators.usage_aggregator import (
-    agent_usage_counts,
-    skill_usage_counts,
-    agent_usage_over_time,
-    skill_usage_over_time,
     agent_last_used,
+    agent_usage_counts,
+    agent_usage_over_time,
     skill_last_used,
+    skill_usage_counts,
+    skill_usage_over_time,
+)
+from claudealytics.models.schemas import (
+    AgentExecution,
+    AgentInfo,
+    SkillExecution,
+    SkillInfo,
+    ToolVersionResult,
+    UnmappedPreferences,
 )
 
 _PREFS_PATH = Path.home() / ".cache" / "claudealytics" / "unmapped-preferences.json"
@@ -93,7 +97,7 @@ def _extract_from_tables(content: str, agents: set[str], skills: set[str]) -> No
 
     for line in lines:
         # Track section headers
-        header_match = re.match(r'^#{1,4}\s+(.+)$', line)
+        header_match = re.match(r"^#{1,4}\s+(.+)$", line)
         if header_match:
             current_section = header_match.group(1).lower()
             continue
@@ -101,11 +105,11 @@ def _extract_from_tables(content: str, agents: set[str], skills: set[str]) -> No
         # Only process table rows (not header/separator rows)
         if not line.strip().startswith("|"):
             continue
-        if re.match(r'^\|\s*-', line):
+        if re.match(r"^\|\s*-", line):
             continue
 
         # Match first-column backtick values: | `name` | ... |
-        row_match = re.match(r'^\|\s*`([^`]+)`\s*\|', line)
+        row_match = re.match(r"^\|\s*`([^`]+)`\s*\|", line)
         if not row_match:
             continue
 
@@ -169,7 +173,8 @@ def render(
 
     with tab_inventory:
         _render_inventory(
-            agent_execs, skill_execs,
+            agent_execs,
+            skill_execs,
             agent_definitions or [],
             skill_definitions or [],
             tool_versions or [],
@@ -190,18 +195,20 @@ def _render_usage(agent_execs: list[AgentExecution], skill_execs: list[SkillExec
     with col_a:
         st.subheader("Agent Usage")
         if agent_counts:
-            df = pd.DataFrame(
-                {"agent": list(agent_counts.keys()), "executions": list(agent_counts.values())}
-            )
+            df = pd.DataFrame({"agent": list(agent_counts.keys()), "executions": list(agent_counts.values())})
             fig = px.bar(
-                df, x="executions", y="agent", orientation="h",
+                df,
+                x="executions",
+                y="agent",
+                orientation="h",
                 color_discrete_sequence=["#8b5cf6"],
             )
             fig.update_layout(
                 height=max(200, len(agent_counts) * 30),
                 margin=dict(l=20, r=20, t=20, b=0),
                 yaxis={"categoryorder": "total ascending"},
-                xaxis_title="Executions", yaxis_title="",
+                xaxis_title="Executions",
+                yaxis_title="",
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -210,18 +217,20 @@ def _render_usage(agent_execs: list[AgentExecution], skill_execs: list[SkillExec
     with col_s:
         st.subheader("Skill Usage")
         if skill_counts_map:
-            df = pd.DataFrame(
-                {"skill": list(skill_counts_map.keys()), "executions": list(skill_counts_map.values())}
-            )
+            df = pd.DataFrame({"skill": list(skill_counts_map.keys()), "executions": list(skill_counts_map.values())})
             fig = px.bar(
-                df, x="executions", y="skill", orientation="h",
+                df,
+                x="executions",
+                y="skill",
+                orientation="h",
                 color_discrete_sequence=["#ec4899"],
             )
             fig.update_layout(
                 height=max(200, len(skill_counts_map) * 30),
                 margin=dict(l=20, r=20, t=20, b=0),
                 yaxis={"categoryorder": "total ascending"},
-                xaxis_title="Executions", yaxis_title="",
+                xaxis_title="Executions",
+                yaxis_title="",
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -236,11 +245,15 @@ def _render_usage(agent_execs: list[AgentExecution], skill_execs: list[SkillExec
         filtered = agent_time_df[agent_time_df["agent"].isin(top_agents)]
         if not filtered.empty:
             fig = px.line(
-                filtered, x="date", y="count", color="agent",
+                filtered,
+                x="date",
+                y="count",
+                color="agent",
                 labels={"date": "Date", "count": "Executions", "agent": "Agent"},
             )
             fig.update_layout(
-                height=350, margin=dict(l=20, r=20, t=100, b=0),
+                height=350,
+                margin=dict(l=20, r=20, t=100, b=0),
                 legend=dict(orientation="h", yanchor="bottom", y=1.15, xanchor="right", x=1),
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -249,11 +262,15 @@ def _render_usage(agent_execs: list[AgentExecution], skill_execs: list[SkillExec
     skill_time_df = skill_usage_over_time(skill_execs)
     if not skill_time_df.empty:
         fig = px.line(
-            skill_time_df, x="date", y="count", color="skill",
+            skill_time_df,
+            x="date",
+            y="count",
+            color="skill",
             labels={"date": "Date", "count": "Executions", "skill": "Skill"},
         )
         fig.update_layout(
-            height=350, margin=dict(l=20, r=20, t=100, b=0),
+            height=350,
+            margin=dict(l=20, r=20, t=100, b=0),
             legend=dict(orientation="h", yanchor="bottom", y=1.15, xanchor="right", x=1),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -290,31 +307,31 @@ def _render_inventory(
         for agent in agent_definitions:
             norm = _normalize(agent.name)
             # Match by normalized name against execution counts
-            runs = next(
-                (v for k, v in counts_agents.items() if _normalize(k) == norm), 0
+            runs = next((v for k, v in counts_agents.items() if _normalize(k) == norm), 0)
+            last = next((v[:10] for k, v in last_used_agents.items() if _normalize(k) == norm), "—")
+            rows.append(
+                {
+                    "Name": agent.name,
+                    "Description": agent.description or "—",
+                    "Model": agent.model or "—",
+                    "Runs": runs,
+                    "Last Used": last,
+                }
             )
-            last = next(
-                (v[:10] for k, v in last_used_agents.items() if _normalize(k) == norm), "—"
-            )
-            rows.append({
-                "Name": agent.name,
-                "Description": agent.description or "—",
-                "Model": agent.model or "—",
-                "Runs": runs,
-                "Last Used": last,
-            })
         # Also include agents seen in executions but not in definitions
         defined_norms = {_normalize(a.name) for a in agent_definitions}
         for exec_name, count in counts_agents.items():
             if _normalize(exec_name) not in defined_norms:
                 last = last_used_agents.get(exec_name, "")
-                rows.append({
-                    "Name": exec_name,
-                    "Description": "—",
-                    "Model": "—",
-                    "Runs": count,
-                    "Last Used": last[:10] if last else "—",
-                })
+                rows.append(
+                    {
+                        "Name": exec_name,
+                        "Description": "—",
+                        "Model": "—",
+                        "Runs": count,
+                        "Last Used": last[:10] if last else "—",
+                    }
+                )
         df_agents = pd.DataFrame(rows).sort_values("Runs", ascending=False)
         st.dataframe(df_agents, use_container_width=True, hide_index=True)
     else:
@@ -328,31 +345,31 @@ def _render_inventory(
         rows = []
         for skill in skill_definitions:
             norm = _normalize(skill.name)
-            runs = next(
-                (v for k, v in counts_skills.items() if _normalize(k) == norm), 0
+            runs = next((v for k, v in counts_skills.items() if _normalize(k) == norm), 0)
+            last = next((v[:10] for k, v in last_used_skills.items() if _normalize(k) == norm), "—")
+            rows.append(
+                {
+                    "Name": skill.name,
+                    "Description": skill.description or "—",
+                    "Invocable": "✓" if skill.user_invocable else "",
+                    "Runs": runs,
+                    "Last Used": last,
+                }
             )
-            last = next(
-                (v[:10] for k, v in last_used_skills.items() if _normalize(k) == norm), "—"
-            )
-            rows.append({
-                "Name": skill.name,
-                "Description": skill.description or "—",
-                "Invocable": "✓" if skill.user_invocable else "",
-                "Runs": runs,
-                "Last Used": last,
-            })
         # Include skills seen in executions but not in definitions
         defined_norms = {_normalize(s.name) for s in skill_definitions}
         for exec_name, count in counts_skills.items():
             if _normalize(exec_name) not in defined_norms:
                 last = last_used_skills.get(exec_name, "")
-                rows.append({
-                    "Name": exec_name,
-                    "Description": "—",
-                    "Invocable": "",
-                    "Runs": count,
-                    "Last Used": last[:10] if last else "—",
-                })
+                rows.append(
+                    {
+                        "Name": exec_name,
+                        "Description": "—",
+                        "Invocable": "",
+                        "Runs": count,
+                        "Last Used": last[:10] if last else "—",
+                    }
+                )
         df_skills = pd.DataFrame(rows).sort_values("Runs", ascending=False)
         st.dataframe(df_skills, use_container_width=True, hide_index=True)
     else:
@@ -400,11 +417,19 @@ def _render_unmapped_agents(
     defined_normalized |= claude_md_agents
 
     builtin_agents_normalized = {
-        _normalize(b) for b in (
-            "Explore", "Plan", "general-purpose", "Bash",
-            "claude-code-guide", "statusline-setup",
-            "code-simplifier", "code-simplifier:code-simplifier",
-            "haiku", "sonnet", "opus",
+        _normalize(b)
+        for b in (
+            "Explore",
+            "Plan",
+            "general-purpose",
+            "Bash",
+            "claude-code-guide",
+            "statusline-setup",
+            "code-simplifier",
+            "code-simplifier:code-simplifier",
+            "haiku",
+            "sonnet",
+            "opus",
         )
     }
     prefs = _load_prefs()
@@ -419,8 +444,7 @@ def _render_unmapped_agents(
     unmapped = {
         name: projects
         for name, projects in agent_projects.items()
-        if _normalize(name) not in defined_normalized
-        and _normalize(name) not in builtin_agents_normalized
+        if _normalize(name) not in defined_normalized and _normalize(name) not in builtin_agents_normalized
     }
 
     st.subheader("Unmapped Agents")
@@ -431,10 +455,7 @@ def _render_unmapped_agents(
     active = {n: p for n, p in unmapped.items() if n not in prefs.dismissed_agents}
     dismissed = {n: p for n, p in unmapped.items() if n in prefs.dismissed_agents}
 
-    st.warning(
-        f"**{len(active)}** unmapped agents"
-        + (f" ({len(dismissed)} dismissed)" if dismissed else "")
-    )
+    st.warning(f"**{len(active)}** unmapped agents" + (f" ({len(dismissed)} dismissed)" if dismissed else ""))
 
     show_dismissed = st.checkbox("Show dismissed agents", value=False, key="show_dismissed_agents")
 
@@ -453,9 +474,7 @@ def _render_unmapped_agents(
 
     for name, projects in sorted(items_to_show):
         is_dismissed = name in prefs.dismissed_agents
-        matching_execs = [
-            ex for ex in agent_execs if (ex.agent_type or ex.agent) == name
-        ]
+        matching_execs = [ex for ex in agent_execs if (ex.agent_type or ex.agent) == name]
         count = len(matching_execs)
         timestamps = [ex.timestamp for ex in matching_execs if ex.timestamp]
         last_used = max(timestamps)[:10] if timestamps else "Unknown"
@@ -508,9 +527,7 @@ def _render_unmapped_skills(
             skill_projects[name].add(project if project else "(unknown)")
 
     unmapped = {
-        name: projects
-        for name, projects in skill_projects.items()
-        if _normalize(name) not in defined_normalized
+        name: projects for name, projects in skill_projects.items() if _normalize(name) not in defined_normalized
     }
 
     st.subheader("Unmapped Skills")
@@ -521,10 +538,7 @@ def _render_unmapped_skills(
     active = {n: p for n, p in unmapped.items() if n not in prefs.dismissed_skills}
     dismissed = {n: p for n, p in unmapped.items() if n in prefs.dismissed_skills}
 
-    st.warning(
-        f"**{len(active)}** unmapped skills"
-        + (f" ({len(dismissed)} dismissed)" if dismissed else "")
-    )
+    st.warning(f"**{len(active)}** unmapped skills" + (f" ({len(dismissed)} dismissed)" if dismissed else ""))
 
     show_dismissed = st.checkbox("Show dismissed skills", value=False, key="show_dismissed_skills")
 
@@ -543,9 +557,7 @@ def _render_unmapped_skills(
 
     for name, projects in sorted(items_to_show):
         is_dismissed = name in prefs.dismissed_skills
-        matching_execs = [
-            ex for ex in skill_execs if (ex.skill_name or ex.skill) == name
-        ]
+        matching_execs = [ex for ex in skill_execs if (ex.skill_name or ex.skill) == name]
         count = len(matching_execs)
         timestamps = [ex.timestamp for ex in matching_execs if ex.timestamp]
         last_used = max(timestamps)[:10] if timestamps else "Unknown"

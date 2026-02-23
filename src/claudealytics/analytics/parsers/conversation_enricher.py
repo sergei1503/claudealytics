@@ -7,36 +7,35 @@ to avoid repeatedly parsing thousands of JSONL files.
 """
 
 import json
-import os
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
-from functools import lru_cache
 
 from pydantic import BaseModel
 
 
 class ToolUsageStats(BaseModel):
     """Aggregated statistics for tool usage - lightweight data structure."""
-    agents: Dict[str, int]  # agent_name -> count
-    skills: Dict[str, int]  # skill_name -> count
-    daily_agents: Dict[str, Dict[str, int]]  # date -> agent -> count
-    daily_skills: Dict[str, Dict[str, int]]  # date -> skill -> count
+
+    agents: dict[str, int]  # agent_name -> count
+    skills: dict[str, int]  # skill_name -> count
+    daily_agents: dict[str, dict[str, int]]  # date -> agent -> count
+    daily_skills: dict[str, dict[str, int]]  # date -> skill -> count
     total_conversations: int
-    date_range: Tuple[str, str]  # (earliest, latest)
+    date_range: tuple[str, str]  # (earliest, latest)
 
 
 class ConversationToolData(BaseModel):
     """Detailed tool execution data for debugging/inspection."""
-    agent_executions: List[dict]
-    skill_executions: List[dict]
+
+    agent_executions: list[dict]
+    skill_executions: list[dict]
 
 
 class ConversationEnricher:
     """Efficiently mines tool usage from conversation JSONL files."""
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Path | None = None):
         self.projects_dir = Path.home() / ".claude" / "projects"
         self.cache_dir = cache_dir or Path.home() / ".cache" / "claudealytics"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -44,7 +43,7 @@ class ConversationEnricher:
         self.index_cache_path = self.cache_dir / "tool-index.json"
         self.stats_cache_path = self.cache_dir / "tool-stats.json"
 
-    def _get_conversation_files(self) -> List[Path]:
+    def _get_conversation_files(self) -> list[Path]:
         """Get all conversation JSONL files (including agent subdir files) sorted by modification time."""
         if not self.projects_dir.exists():
             return []
@@ -57,7 +56,7 @@ class ConversationEnricher:
 
         return sorted(files, key=lambda f: f.stat().st_mtime)
 
-    def _build_tool_index(self, force_rebuild: bool = False) -> Dict[str, List[int]]:
+    def _build_tool_index(self, force_rebuild: bool = False) -> dict[str, list[int]]:
         """Build index mapping files to line numbers containing tool_use blocks."""
         # Check cache
         if not force_rebuild and self.index_cache_path.exists():
@@ -93,27 +92,21 @@ class ConversationEnricher:
                                                     break
                             except json.JSONDecodeError:
                                 continue
-            except (IOError, OSError):
+            except OSError:
                 continue
 
             if line_numbers:
                 index[str(file_path)] = line_numbers
 
         # Save cache
-        cache_data = {
-            "timestamp": datetime.now().timestamp(),
-            "index": index
-        }
+        cache_data = {"timestamp": datetime.now().timestamp(), "index": index}
         with open(self.index_cache_path, "w") as f:
             json.dump(cache_data, f)
 
         return index
 
     def mine_tool_usage_stats(
-        self,
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
-        use_cache: bool = True
+        self, date_from: datetime | None = None, date_to: datetime | None = None, use_cache: bool = True
     ) -> ToolUsageStats:
         """
         Extract aggregated tool usage statistics.
@@ -209,15 +202,12 @@ class ConversationEnricher:
             daily_agents={k: dict(v) for k, v in daily_agents.items()},
             daily_skills={k: dict(v) for k, v in daily_skills.items()},
             total_conversations=total_conversations,
-            date_range=(earliest_date or "", latest_date or "")
+            date_range=(earliest_date or "", latest_date or ""),
         )
 
         # Cache the stats
         if use_cache:
-            cache_data = {
-                "timestamp": datetime.now().timestamp(),
-                "stats": stats.model_dump()
-            }
+            cache_data = {"timestamp": datetime.now().timestamp(), "stats": stats.model_dump()}
             with open(self.stats_cache_path, "w") as f:
                 json.dump(cache_data, f, indent=2)
 
@@ -259,22 +249,26 @@ class ConversationEnricher:
                                         input_data = block.get("input", {})
 
                                         if tool_name == "Task":
-                                            agent_executions.append({
-                                                "timestamp": timestamp,
-                                                "session_id": session_id,
-                                                "agent_type": input_data.get("subagent_type", "unknown"),
-                                                "prompt": input_data.get("prompt", "")[:200],
-                                                "status": "unknown",
-                                            })
+                                            agent_executions.append(
+                                                {
+                                                    "timestamp": timestamp,
+                                                    "session_id": session_id,
+                                                    "agent_type": input_data.get("subagent_type", "unknown"),
+                                                    "prompt": input_data.get("prompt", "")[:200],
+                                                    "status": "unknown",
+                                                }
+                                            )
 
                                         elif tool_name == "Skill":
-                                            skill_executions.append({
-                                                "timestamp": timestamp,
-                                                "session_id": session_id,
-                                                "skill_name": input_data.get("skill", "unknown"),
-                                                "args": input_data.get("args", ""),
-                                                "status": "unknown",
-                                            })
+                                            skill_executions.append(
+                                                {
+                                                    "timestamp": timestamp,
+                                                    "session_id": session_id,
+                                                    "skill_name": input_data.get("skill", "unknown"),
+                                                    "args": input_data.get("args", ""),
+                                                    "status": "unknown",
+                                                }
+                                            )
 
                         except (json.JSONDecodeError, KeyError):
                             continue
@@ -294,9 +288,7 @@ class ConversationEnricher:
 
 # Convenience functions for direct usage
 def mine_tool_usage_stats(
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
-    use_cache: bool = True
+    date_from: datetime | None = None, date_to: datetime | None = None, use_cache: bool = True
 ) -> ToolUsageStats:
     """Mine aggregated tool usage statistics from conversations."""
     enricher = ConversationEnricher()

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from claudealytics.models.schemas import AgentInfo, ScanIssue, ScanReport, SkillInfo
+from claudealytics.models.schemas import ScanReport
 
 
 def generate_report(report: ScanReport) -> str:
@@ -13,8 +11,8 @@ def generate_report(report: ScanReport) -> str:
         "# Claude Code Infrastructure Scan Report",
         f"\n_Generated: {report.timestamp}_\n",
         "## Summary\n",
-        f"| Metric | Count |",
-        f"|--------|-------|",
+        "| Metric | Count |",
+        "|--------|-------|",
         f"| Agents | {report.total_agents} |",
         f"| Skills | {report.total_skills} |",
         f"| CLAUDE.md files | {report.total_claude_md_files} |",

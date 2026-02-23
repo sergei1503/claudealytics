@@ -5,8 +5,8 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 app = typer.Typer(
     name="claudealytics",
@@ -20,7 +20,8 @@ console = Console()
 def scan(
     output: Path = typer.Option(
         Path("scan-report.md"),
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Output file for the scan report",
     ),
     no_conversations: bool = typer.Option(
@@ -30,27 +31,27 @@ def scan(
     ),
 ):
     """Scan Claude Code infrastructure for issues and generate a report."""
-    from claudealytics.scanner.agent_scanner import scan_agents
-    from claudealytics.scanner.skill_scanner import scan_skills
-    from claudealytics.scanner.claude_md_scanner import scan_claude_md_files
-    from claudealytics.scanner.cross_reference import cross_reference
-    from claudealytics.scanner.report_generator import generate_report
-    from claudealytics.analytics.parsers.execution_log_parser import (
-        parse_agent_executions,
-        parse_skill_executions,
+    from claudealytics.analytics.aggregators.usage_aggregator import (
+        agent_last_used,
+        agent_usage_counts,
+        skill_last_used,
+        skill_usage_counts,
     )
-    from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
     from claudealytics.analytics.data_merger import (
         merge_agent_executions,
         merge_skill_executions,
     )
-    from claudealytics.analytics.aggregators.usage_aggregator import (
-        agent_usage_counts,
-        skill_usage_counts,
-        agent_last_used,
-        skill_last_used,
+    from claudealytics.analytics.parsers.conversation_enricher import mine_tool_usage_stats
+    from claudealytics.analytics.parsers.execution_log_parser import (
+        parse_agent_executions,
+        parse_skill_executions,
     )
     from claudealytics.models.schemas import ScanReport
+    from claudealytics.scanner.agent_scanner import scan_agents
+    from claudealytics.scanner.claude_md_scanner import scan_claude_md_files
+    from claudealytics.scanner.cross_reference import cross_reference
+    from claudealytics.scanner.report_generator import generate_report
+    from claudealytics.scanner.skill_scanner import scan_skills
 
     with console.status("[bold green]Scanning infrastructure..."):
         agents = scan_agents()
@@ -129,10 +130,10 @@ def scan(
         report_md = generate_report(report)
 
     output.write_text(report_md)
-    console.print(f"\n[bold green]✅ Scan complete![/]")
-    high_ct = len([i for i in all_issues if i.severity == 'high'])
-    med_ct = len([i for i in all_issues if i.severity == 'medium'])
-    low_ct = len([i for i in all_issues if i.severity == 'low'])
+    console.print("\n[bold green]✅ Scan complete![/]")
+    high_ct = len([i for i in all_issues if i.severity == "high"])
+    med_ct = len([i for i in all_issues if i.severity == "medium"])
+    low_ct = len([i for i in all_issues if i.severity == "low"])
     console.print(f"   Found [bold]{len(all_issues)}[/] issues ({high_ct} high, {med_ct} medium, {low_ct} low)")
     console.print(f"   Report saved to: [bold]{output}[/]")
 
@@ -149,9 +150,8 @@ def scan(
 @app.command()
 def stats():
     """Show quick usage statistics in the terminal."""
-    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
-    from claudealytics.analytics.aggregators.token_aggregator import model_usage_summary
     from claudealytics.analytics.cost_calculator import estimate_model_costs, total_estimated_cost
+    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
 
     with console.status("[bold green]Loading stats..."):
         stats_data = parse_stats_cache()
@@ -192,7 +192,8 @@ def stats():
 def optimize(
     output: Path = typer.Option(
         Path("optimization-report.md"),
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Output file for the optimization report",
     ),
     include_conversations: bool = typer.Option(
@@ -212,19 +213,22 @@ def optimize(
     opportunities = report.count("💡 Opportunity")
 
     output.write_text(report)
-    console.print(Panel.fit(
-        f"[bold green]✅ Optimization report generated[/bold green]\n"
-        f"📄 Output: {output}\n"
-        f"Found {critical_count} critical issues, {quick_wins} quick wins, {opportunities} opportunities",
-        title="Optimization Analysis Complete",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold green]✅ Optimization report generated[/bold green]\n"
+            f"📄 Output: {output}\n"
+            f"Found {critical_count} critical issues, {quick_wins} quick wins, {opportunities} opportunities",
+            title="Optimization Analysis Complete",
+        )
+    )
 
 
 @app.command(name="export-json")
 def export_json(
     output: Path | None = typer.Option(
         None,
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Output file (default: print to stdout)",
     ),
     pretty: bool = typer.Option(
@@ -235,11 +239,12 @@ def export_json(
 ):
     """Export structured platform data as JSON."""
     import json
-    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
+
     from claudealytics.analytics.parsers.execution_log_parser import (
         parse_agent_executions,
         parse_skill_executions,
     )
+    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
     from claudealytics.analytics.report_generator import export_platform_json
 
     with console.status("[bold green]Collecting platform data..."):
@@ -263,8 +268,8 @@ def dashboard(
     port: int = typer.Option(8501, "--port", "-p", help="Port to run dashboard on"),
 ):
     """Launch the interactive Streamlit dashboard."""
-    import sys
     import subprocess
+    import sys
 
     dashboard_path = Path(__file__).parent / "dashboard" / "app.py"
 
@@ -272,8 +277,17 @@ def dashboard(
     console.print(f"   Open http://localhost:{port} in your browser\n")
 
     subprocess.run(
-        [sys.executable, "-m", "streamlit", "run", str(dashboard_path),
-         "--server.port", str(port), "--server.headless", "true"],
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(dashboard_path),
+            "--server.port",
+            str(port),
+            "--server.headless",
+            "true",
+        ],
     )
 
 
