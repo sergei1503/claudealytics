@@ -50,7 +50,7 @@ optimization-*.md
 
 # Cache
 .cache/
-~/.cache/claude-insights/
+~/.cache/claudealytics/
 
 # Sensitive data
 **/execution-logs/
@@ -63,3 +63,6 @@ optimization-*.md
 secrets.json
 credentials.json
 portless.json
+
+# Generated reports
+docs/conversation-data-report.html
