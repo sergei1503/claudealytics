@@ -42,7 +42,7 @@ htmlcov/
 .hypothesis/
 
 # Project specific
-test_*.py
+/test_*.py
 scan-*.md
 optimization-*.md
 *.jsonl
