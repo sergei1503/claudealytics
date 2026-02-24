@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/sergei1503/claudealytics/actions/workflows/ci.yml/badge.svg)](https://github.com/sergei1503/claudealytics/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/pypi/v/claudealytics)](https://pypi.org/project/claudealytics/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Analytics dashboard for Claude Code power users. Mine your local conversation history to understand usage patterns, track costs, and optimize your workflow. All analysis runs locally.
@@ -16,7 +17,7 @@ Analytics dashboard for Claude Code power users. Mine your local conversation hi
 ## Quick Start
 
 ```bash
-pip install git+https://github.com/sergei1503/claudealytics.git
+pip install claudealytics
 claudealytics dashboard
 ```
 
