@@ -263,6 +263,46 @@ def export_json(
         print(json_str)
 
 
+@app.command(name="export-profile")
+def export_profile(
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output file (default: print to stdout)",
+    ),
+    pretty: bool = typer.Option(
+        True,
+        "--pretty/--compact",
+        help="Pretty-print JSON output",
+    ),
+):
+    """Export a sanitized profile for sharing (no session IDs, no conversation content)."""
+    import json
+
+    from claudealytics.analytics.profile_exporter import build_exported_profile
+
+    with console.status("[bold green]Building exportable profile..."):
+        profile = build_exported_profile()
+
+    if profile.sessions_analyzed == 0:
+        console.print("[yellow]No sessions found — run the dashboard first to mine conversation data.[/]")
+        raise typer.Exit(1)
+
+    indent = 2 if pretty else None
+    json_str = json.dumps(profile.model_dump(), indent=indent, default=str)
+
+    if output:
+        output.write_text(json_str)
+        console.print(f"[bold green]Exported profile to {output}[/]")
+        console.print(f"   {profile.sessions_analyzed} sessions analyzed")
+        console.print(f"   {len(profile.dimensions)} heuristic dimensions")
+        console.print(f"   {len(profile.llm_dimensions)} LLM dimensions ({profile.llm_sessions_scored} sessions scored)")
+        console.print(f"   Overall score: {profile.overall_score}/10")
+    else:
+        print(json_str)
+
+
 @app.command()
 def dashboard(
     port: int = typer.Option(8501, "--port", "-p", help="Port to run dashboard on"),

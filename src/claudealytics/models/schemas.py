@@ -222,6 +222,58 @@ class ContentMineResult(BaseModel):
     human_message_lengths: list[dict] = Field(default_factory=list)
 
 
+class SubScore(BaseModel):
+    name: str  # e.g. "File path ratio"
+    raw_value: float = 0.0  # e.g. 0.35 (the measured value)
+    normalized: float = 0.0  # 0.0–1.0 after threshold normalization
+    weight: float = 0.0  # e.g. 0.35
+    contribution: float = 0.0  # normalized * weight
+    threshold: str = ""  # human-readable: "1.0 = every message has paths"
+
+
+class DimensionScore(BaseModel):
+    key: str
+    name: str
+    category: str  # communication | strategy | technical | autonomy
+    score: float = 5.0  # 1.0–10.0
+    explanation: str = ""
+    sub_scores: list[SubScore] = Field(default_factory=list)
+    guide: str = ""  # how this dimension works
+    improvement_hint: str = ""  # actionable feedback
+
+
+class ConversationProfile(BaseModel):
+    session_id: str = ""
+    project: str = ""
+    date: str = ""
+    dimensions: list[DimensionScore] = Field(default_factory=list)
+    overall_score: float = 5.0
+    category_scores: dict[str, float] = Field(default_factory=dict)
+
+
+class LLMDimensionScore(BaseModel):
+    key: str
+    name: str
+    category: str
+    score: float = 5.0
+    reasoning: str = ""
+    evidence_quotes: list[str] = Field(default_factory=list)
+    confidence: float = 0.5
+
+
+class LLMProfile(BaseModel):
+    session_id: str = ""
+    project: str = ""
+    date: str = ""
+    dimensions: list[LLMDimensionScore] = Field(default_factory=list)
+    overall_score: float = 5.0
+    category_scores: dict[str, float] = Field(default_factory=dict)
+    model_used: str = ""
+    messages_sampled: int = 0
+    total_messages: int = 0
+    scored_at: str = ""
+
+
 class HealthSubScore(BaseModel):
     name: str
     label: str
@@ -245,3 +297,42 @@ class FullReport(BaseModel):
     model_used: str = ""
     generation_duration_seconds: float = 0.0
     error: str = ""
+
+
+# ── Exported Profile (for leaderboard upload) ─────────────────
+
+
+class ExportedDimension(BaseModel):
+    """A single dimension score, sanitized for external sharing."""
+
+    key: str
+    name: str
+    category: str
+    score: float = 5.0
+    sub_scores: list[SubScore] = Field(default_factory=list)
+
+
+class ExportedLLMDimension(BaseModel):
+    """A single LLM-assessed dimension, sanitized (no evidence quotes)."""
+
+    key: str
+    name: str
+    category: str
+    score: float = 5.0
+    confidence: float = 0.5
+
+
+class ExportedProfile(BaseModel):
+    """Sanitized profile for external sharing — no session IDs, project paths, or conversation content."""
+
+    version: int = 1
+    exported_at: str = ""
+    claudealytics_version: str = ""
+    sessions_analyzed: int = 0
+    date_range: tuple[str, str] = ("", "")
+    overall_score: float = 5.0
+    category_scores: dict[str, float] = Field(default_factory=dict)
+    dimensions: list[ExportedDimension] = Field(default_factory=list)
+    llm_dimensions: list[ExportedLLMDimension] = Field(default_factory=list)
+    llm_overall_score: float | None = None
+    llm_sessions_scored: int = 0
