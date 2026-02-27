@@ -150,7 +150,12 @@ def scan(
 @app.command()
 def stats():
     """Show quick usage statistics in the terminal."""
-    from claudealytics.analytics.cost_calculator import estimate_model_costs, total_estimated_cost
+    try:
+        from claudealytics.analytics.cost_calculator import estimate_model_costs, total_estimated_cost
+    except ImportError:
+        console.print("[red]Missing dashboard dependencies. Install with:[/]")
+        console.print("  pip install 'claudealytics[dashboard]'")
+        raise typer.Exit(1)
     from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
 
     with console.status("[bold green]Loading stats..."):
@@ -311,6 +316,13 @@ def dashboard(
     import subprocess
     import sys
 
+    try:
+        import streamlit  # noqa: F401
+    except ImportError:
+        console.print("[red]Missing dashboard dependencies. Install with:[/]")
+        console.print("  pip install 'claudealytics[dashboard]'")
+        raise typer.Exit(1)
+
     dashboard_path = Path(__file__).parent / "dashboard" / "app.py"
 
     console.print(f"[bold green]🚀 Launching dashboard on port {port}...[/]")
@@ -329,6 +341,95 @@ def dashboard(
             "true",
         ],
     )
+
+
+@app.command()
+def publish(
+    server: str = typer.Option(
+        "https://guilder.dev",
+        "--server",
+        "-s",
+        help="Guilder server URL",
+    ),
+):
+    """Publish your profile to guilder.dev leaderboard."""
+    import json
+    import webbrowser
+
+    import httpx
+
+    from claudealytics.analytics.parsers.execution_log_parser import (
+        parse_agent_executions,
+        parse_skill_executions,
+    )
+    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
+    from claudealytics.analytics.report_generator import export_platform_json
+
+    config_dir = Path.home() / ".cache" / "claudealytics"
+    config_file = config_dir / "guilder.json"
+
+    # Collect platform data
+    with console.status("[bold green]Collecting platform data..."):
+        stats_data = parse_stats_cache()
+        agent_execs = parse_agent_executions()
+        skill_execs = parse_skill_executions()
+        data = export_platform_json(stats_data, agent_execs, skill_execs)
+
+    # Read saved claim code if exists
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    saved_config: dict[str, str] = {}
+    if config_file.exists():
+        try:
+            saved_config = json.loads(config_file.read_text())
+            if saved_config.get("claimCode"):
+                headers["X-Claim-Code"] = saved_config["claimCode"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # POST to guilder
+    with console.status("[bold green]Publishing to guilder.dev..."):
+        try:
+            resp = httpx.post(
+                f"{server.rstrip('/')}/api/cli/publish",
+                json=data,
+                headers=headers,
+                timeout=30,
+            )
+        except httpx.ConnectError:
+            console.print(f"[red]Could not connect to {server}[/]")
+            raise typer.Exit(1)
+
+    if resp.status_code == 429:
+        console.print("[yellow]Rate limit exceeded. Try again later.[/]")
+        raise typer.Exit(1)
+
+    if resp.status_code != 201:
+        console.print(f"[red]Upload failed (HTTP {resp.status_code}): {resp.text}[/]")
+        raise typer.Exit(1)
+
+    result = resp.json()
+
+    # Save claim code for future uploads
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(json.dumps({
+        "claimCode": result["claimCode"],
+        "server": server,
+    }, indent=2))
+
+    # Display results
+    score = result.get("overallScore", 0)
+    claim_url = result["claimUrl"]
+
+    console.print()
+    console.print(Panel.fit(
+        f"[bold green]Score: {score:.1f}/100[/bold green]\n\n"
+        f"Claim your profile:\n[bold cyan]{claim_url}[/bold cyan]",
+        title="Published to guilder.dev",
+        border_style="green",
+    ))
+
+    # Open browser
+    webbrowser.open(claim_url)
 
 
 @app.command()

@@ -66,10 +66,27 @@ def _clamp(value: float, lo: float = 1.0, hi: float = 10.0) -> float:
     return max(lo, min(hi, value))
 
 
-def _dampen(raw_score: float, human_msg_count: int, threshold: int = 5) -> float:
-    """Pull short sessions toward neutral 5.0."""
-    confidence = min(human_msg_count / threshold, 1.0)
+def _dampen(raw_score: float, human_msg_count: int, threshold: int = 2) -> float:
+    """Pull short sessions toward neutral 5.0.
+
+    Uses a log-curve so 1-message sessions (the median) preserve 75% of
+    variance instead of the old linear ramp's 50%.
+    """
+    if human_msg_count == 0:
+        return 5.0
+    import math
+    confidence = min(math.log2(human_msg_count + 1) / math.log2(threshold + 2), 1.0)
     return 5.0 + (raw_score - 5.0) * confidence
+
+
+def _raw_to_score(contribution_sum: float) -> float:
+    """Convert sub-score contribution sum to a 1-10 raw score.
+
+    Applies x^0.6 power-curve stretching before scaling, which expands the
+    typical contribution range (0.25-0.50) from raw [3.25-5.50] to [4.43-6.57].
+    """
+    stretched = max(contribution_sum, 0.0) ** 0.6
+    return stretched * 9 + 1
 
 
 def _safe_ratio(numerator: float, denominator: float, default: float = 0.0) -> float:
@@ -108,7 +125,7 @@ def score_context_precision(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dime
         _sub("Message length fit", avg_len, length_score, 0.15, "Sweet spot ~300 chars"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -132,12 +149,12 @@ def score_context_precision(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dime
 def score_semantic_density(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> DimensionScore:
     human_count = s.get("human_msg_count", 0) or 1
     total_text = s.get("total_text_length_human", 0) or 1
-    human_words = total_text / 5
+    human_words = int(hm["word_count"].sum()) if (not hm.empty and "word_count" in hm.columns) else total_text / 5
     tool_calls = s.get("total_tool_calls", 0)
     approval_ratio = _safe_ratio(s.get("intervention_approval", 0), human_count)
 
     efficiency = _safe_ratio(tool_calls, human_words)
-    eff_score = min(efficiency / 0.5, 1.0)
+    eff_score = min(efficiency / 0.15, 1.0)
     penalty = approval_ratio * 0.3
 
     subs = [
@@ -145,7 +162,7 @@ def score_semantic_density(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
         _sub("Approval penalty", approval_ratio, 1.0 - penalty, 0.30, "High approval = rubber-stamping"),
     ]
 
-    raw = (eff_score - penalty) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -193,7 +210,7 @@ def score_iterative_refinement(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
         _sub("Session length bonus", total_msgs, length_bonus / 0.1, 0.10, "Longer sessions show learning"),
     ]
 
-    raw = (rate_score * 0.6 + front_score * 0.3 + length_bonus) * 9 + 1
+    raw = _raw_to_score(rate_score * 0.6 + front_score * 0.3 + length_bonus)
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -232,7 +249,7 @@ def score_conversation_balance(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
     text_balance = 1.0 - min(abs(text_ratio - 0.2) / 0.3, 1.0)
 
     # Messages per session density
-    density = min(total_msgs / 20, 1.0)
+    density = min(total_msgs / 10, 1.0)
 
     # Question frequency
     question_freq = _safe_ratio(question_count, human_count)
@@ -245,7 +262,7 @@ def score_conversation_balance(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
         _sub("Question frequency", question_freq, q_score, 0.20, "Questions drive exploration"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -285,17 +302,17 @@ def score_task_decomposition(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dim
 
     agent_score = min(agent_skill_count / 5, 1.0)
     struct_score = min(structured_ratio / 0.5, 1.0)
-    file_score = min(files_touched / 15, 1.0)
+    file_score = min(files_touched / 8, 1.0)
     cwd_score = min(cwd_switches / 3, 1.0)
 
     subs = [
         _sub("Agent/skill usage", agent_skill_count, agent_score, 0.30, "5+ agent/skill calls = excellent"),
         _sub("Structured instructions", structured_ratio, struct_score, 0.30, "Guidance + new instruction ratio"),
-        _sub("File breadth", files_touched, file_score, 0.25, "15+ files = wide scope"),
+        _sub("File breadth", files_touched, file_score, 0.25, "8+ files = wide scope"),
         _sub("CWD switches", cwd_switches, cwd_score, 0.15, "Cross-directory work"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -328,17 +345,17 @@ def score_validation_rigor(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
     rbw_pct = _safe_ratio(s.get("writes_with_prior_read_count", 0), rbw_total)
     correction_bonus = min(s.get("intervention_correction", 0) / 5, 1.0)
 
-    test_score = min(test_count / 5, 1.0)
+    test_score = min(test_count / 3, 1.0)
     question_score = min(question_pct / 0.3, 1.0)
 
     subs = [
-        _sub("Test commands", test_count, test_score, 0.35, "5+ test runs = thorough"),
+        _sub("Test commands", test_count, test_score, 0.35, "3+ test runs = thorough"),
         _sub("Question frequency", question_pct, question_score, 0.25, "Asking questions validates understanding"),
         _sub("Read-before-write", rbw_pct, rbw_pct, 0.25, "1.0 = always reads before writing"),
         _sub("Bug-catching corrections", correction_bonus, correction_bonus, 0.15, "Corrections that catch bugs"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -379,7 +396,7 @@ def score_error_resilience(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
 
     density_score = 1.0 - min(error_density / 0.15, 1.0)
     loop_score = 1.0 - min(max_consecutive / 5, 1.0)
-    autonomy_score = min(avg_autonomy / 5, 1.0) if total_errors > 0 else 0.5
+    autonomy_score = min(avg_autonomy / 5, 1.0) if total_errors > 0 else 0.7
 
     subs = [
         _sub("Error density", error_density, density_score, 0.40, "Lower is better; >15% is poor"),
@@ -387,7 +404,7 @@ def score_error_resilience(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
         _sub("Autonomy despite errors", avg_autonomy, autonomy_score, 0.25, "Maintained autonomy after errors"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -426,7 +443,7 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
 
     # Thinking ratio: thinking length relative to output
     thinking_ratio = _safe_ratio(thinking_length, total_output)
-    thinking_score = min(thinking_ratio / 0.5, 1.0)
+    thinking_score = min(thinking_ratio / 0.3, 1.0)
 
     # Research-before-action ratio
     research_ratio = _safe_ratio(research_count, total_tool_calls)
@@ -449,7 +466,7 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
         _sub("Reasoning markers", question_ratio, reasoning_score, 0.20, "Questions drive deliberation"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -492,7 +509,7 @@ def score_code_literacy(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensio
         _sub("Detail level", avg_len, detail_level, 0.20, "Avg message length / 500"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -527,18 +544,18 @@ def score_architectural_stewardship(s: dict, tc: pd.DataFrame, hm: pd.DataFrame)
     structured_pct = _safe_ratio(structured_edits, total_edits)
 
     guidance_score = min(guidance_ratio / 0.3, 1.0)
-    file_score = min(files_touched / 15, 1.0)
+    file_score = min(files_touched / 8, 1.0)
     struct_score = min(structured_pct / 0.3, 1.0)
     correction_penalty = 1.0 - min(correction_rate / 0.3, 1.0)
 
     subs = [
         _sub("Guidance ratio", guidance_ratio, guidance_score, 0.30, "Architectural guidance frequency"),
-        _sub("File breadth", files_touched, file_score, 0.25, "15+ files = wide architectural scope"),
+        _sub("File breadth", files_touched, file_score, 0.25, "8+ files = wide architectural scope"),
         _sub("Structured edits", structured_pct, struct_score, 0.25, "Refactor/type/error handling edits"),
         _sub("Low correction rate", correction_rate, correction_penalty, 0.20, "Low corrections = clean architecture"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -577,16 +594,16 @@ def score_debugging_collaboration(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -
 
     rbw_score = rbw_pct
     read_score = min(read_ratio / 0.3, 1.0)
-    grep_score = min(grep_count / 10, 1.0)
+    grep_score = min(grep_count / 5, 1.0)
 
     subs = [
         _sub("Read-before-write", rbw_pct, rbw_score, 0.30, "1.0 = always reads before writing"),
         _sub("Read ratio", read_ratio, read_score, 0.25, "30% reads = thorough investigation"),
-        _sub("Grep searches", grep_count, grep_score, 0.25, "10+ grep searches = deep exploration"),
+        _sub("Grep searches", grep_count, grep_score, 0.25, "5+ grep searches = deep exploration"),
         _sub("Diagnostic messages", diagnostic_score, diagnostic_score, 0.20, "Paths + questions in messages"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -630,7 +647,7 @@ def score_token_efficiency(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
 
     # Output-per-input ratio (higher = more efficient)
     oi_ratio = _safe_ratio(output_tokens, input_tokens)
-    oi_score = min(oi_ratio / 0.5, 1.0)
+    oi_score = min(oi_ratio / 0.3, 1.0)
 
     # Thinking-to-output ratio (some thinking is good, too much is wasteful)
     to_ratio = _safe_ratio(thinking_length, output_tokens) if output_tokens > 0 else 0
@@ -657,7 +674,7 @@ def score_token_efficiency(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
         _sub("Error rate", error_rate, error_score, 0.15, "Lower error rate = better"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -707,7 +724,7 @@ def score_strategic_delegation(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
         _sub("Meaningful input length", avg_input_len, input_score, 0.25, "200+ chars = substantive input"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -750,21 +767,21 @@ def score_tool_orchestration(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dim
                 tc["file_path"].fillna("").str.contains(r"\.claude/", regex=True).sum()
             )
 
-    diversity_score = min(tool_diversity / 8, 1.0)
+    diversity_score = min(tool_diversity / 5, 1.0)
     agent_skill_score = min((agent_count + skill_count) / 5, 1.0)
     system_score = min(system_investment_count / 5, 1.0)
     sidechain_score = min(sidechain_count / 5, 1.0)
-    volume_score = min(total_tool_calls / 50, 1.0)
+    volume_score = min(total_tool_calls / 25, 1.0)
 
     subs = [
-        _sub("Tool diversity", tool_diversity, diversity_score, 0.25, "8+ unique tools = excellent"),
+        _sub("Tool diversity", tool_diversity, diversity_score, 0.25, "5+ unique tools = excellent"),
         _sub("Agent/skill usage", agent_count + skill_count, agent_skill_score, 0.25, "5+ agent/skill calls"),
         _sub("System investment", system_investment_count, system_score, 0.20, "Touches to ~/.claude/ configs"),
         _sub("Sidechains", sidechain_count, sidechain_score, 0.15, "5+ sidechains = orchestrated"),
-        _sub("Tool volume", total_tool_calls, volume_score, 0.15, "50+ tool calls = productive"),
+        _sub("Tool volume", total_tool_calls, volume_score, 0.15, "25+ tool calls = productive"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -814,7 +831,7 @@ def score_trust_calibration(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dime
         _sub("Autonomy matching", avg_autonomy, autonomy_match, 0.25, "Autonomy appropriate to complexity"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -844,7 +861,7 @@ def score_session_productivity(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
 
     # Writes per human message
     writes_per_msg = _safe_ratio(total_edits + total_writes, human_count)
-    writes_score = min(writes_per_msg / 3, 1.0)
+    writes_score = min(writes_per_msg / 2, 1.0)
 
     # Edit magnitude (unique files touched as proxy)
     files_touched = s.get("unique_files_touched", 0)
@@ -870,13 +887,13 @@ def score_session_productivity(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
     completion_score = min(completion_signals / 3, 1.0)
 
     subs = [
-        _sub("Writes per message", writes_per_msg, writes_score, 0.30, "3+ writes/msg = productive"),
+        _sub("Writes per message", writes_per_msg, writes_score, 0.30, "2+ writes/msg = productive"),
         _sub("Edit magnitude", files_touched, edit_magnitude, 0.25, "10+ files = large edit scope"),
         _sub("Files per message", files_per_msg, fpm_score, 0.20, "2+ files/msg = efficient"),
         _sub("Completion signals", completion_signals, completion_score, 0.25, "Git commits + passing tests"),
     ]
 
-    raw = sum(sub.contribution for sub in subs) * 9 + 1
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""

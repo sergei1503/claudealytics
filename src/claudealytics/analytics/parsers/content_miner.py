@@ -20,12 +20,38 @@ import pandas as pd
 # ── Regex patterns (compiled once) ──────────────────────────────
 
 _CORRECTION_RE = re.compile(
-    r"\b(no,|wrong|actually|don'?t|stop|instead|that'?s not|not what I)\b",
+    r"(?:"
+    r"\bno,\s"  # "no, " — explicit negation with comma
+    r"|\bwrong\b(?!\s+with)"  # "wrong" but not "wrong with" (diagnostic)
+    r"|\bthat'?s\s+not\b"  # "that's not"
+    r"|\bnot\s+what\s+I\b"  # "not what I"
+    r"|\brevert\b"  # revert
+    r"|\bundo\b"  # undo
+    r"|\broll\s*back\b"  # roll back
+    r"|\bthat\s+broke\b"  # that broke
+    r"|\bstop\s*[.!]"  # "stop." or "stop!" — standalone
+    r"|\bstop\s+doing\b"  # "stop doing"
+    r")",
     re.IGNORECASE,
 )
 _APPROVAL_RE = re.compile(
-    r"\b(yes|looks good|go ahead|proceed|lgtm|ok|sure|approved|great|perfect)\b",
-    re.IGNORECASE,
+    r"(?:"
+    r"(?:^|\s)yes(?:\s|[,!.]|$)"  # "yes" standalone (not "yesterday")
+    r"|\blooks\s+good\b"  # "looks good"
+    r"|\bgo\s+ahead\b"  # "go ahead"
+    r"|\bproceed\b"  # "proceed"
+    r"|\blgtm\b"  # "lgtm"
+    r"|\bapproved\b"  # "approved"
+    r"|\bperfect\b"  # "perfect"
+    r"|\bship\s+it\b"  # "ship it"
+    r"|\bmerge\s+it\b"  # "merge it"
+    r"|\bdo\s+it\b"  # "do it"
+    r"|\bthat\s+works\b"  # "that works"
+    r"|\bsounds\s+good\b"  # "sounds good"
+    r"|\bsure(?:\s+thing|\s*,\s*go)|\bsure\s*[.!]?\s*$"  # "sure thing", "sure, go", "sure." at end
+    r"|\bgreat(?:\s*[,!.]\s*(?:thanks|thank|go|yes|do)|\s*[!.]\s*$)"  # "great, thanks" / "great!" at end
+    r")",
+    re.IGNORECASE | re.MULTILINE,
 )
 _FILE_PATH_RE = re.compile(r"(?:/[\w.-]+){2,}")
 _CODE_BLOCK_RE = re.compile(r"```")
@@ -37,6 +63,9 @@ _SELF_CORRECTION_RE = re.compile(
     r"\b(actually|wait|let me reconsider|on second thought|I was wrong)\b",
     re.IGNORECASE,
 )
+# Strip fenced code blocks before checking for questions/inline code
+_FENCED_CODE_RE = re.compile(r"```[\s\S]*?```")
+_INLINE_CODE_RE = re.compile(r"`[^`]+`")
 _REASONING_MARKER_RE = re.compile(r"^(Note:|Approach:|Decision:)", re.MULTILINE)
 _BASH_CMD_CATEGORY = {
     "git": "git",
@@ -394,25 +423,26 @@ class ContentMiner:
                             word_count = len(full_text.split()) if full_text.strip() else 0
 
                             # Only count as human message if there's actual user text
-                            # (tool_result-only messages are system-generated, not human)
-                            is_human_message = bool(full_text.strip()) or not has_tool_result
+                            # (tool_result-only or empty messages are not human messages)
+                            is_human_message = bool(full_text.strip())
 
                             if is_human_message:
                                 s["human_msg_count"] += 1
                                 d["human_messages"] += 1
                                 session_msg_roles[session_id].append("user")
-
-                            s["total_text_length_human"] += text_length
-                            d["total_text_length_human"] += text_length
+                                s["total_text_length_human"] += text_length
+                                d["total_text_length_human"] += text_length
 
                             # Skip classification for tool-result-only messages
                             if text_parts and not (has_tool_result and not full_text.strip()):
                                 # Classify intervention type
+                                # Check correction BEFORE approval to avoid
+                                # misclassifying short corrections like "no, wrong"
                                 classification = "new_instruction"
-                                if text_length < 80 and _APPROVAL_RE.search(full_text):
-                                    classification = "approval"
-                                elif _CORRECTION_RE.search(full_text):
+                                if _CORRECTION_RE.search(full_text):
                                     classification = "correction"
+                                elif text_length < 80 and _APPROVAL_RE.search(full_text):
+                                    classification = "approval"
                                 elif (
                                     _FILE_PATH_RE.search(full_text)
                                     or _CODE_BLOCK_RE.search(full_text)
@@ -423,9 +453,12 @@ class ContentMiner:
                                 s[f"intervention_{classification}"] += 1
                                 d[f"intervention_{classification}"] += 1
 
-                                if full_text.rstrip().endswith("?"):
+                                # Question detection: find ? outside code blocks
+                                text_no_code = _FENCED_CODE_RE.sub("", full_text)
+                                if re.search(r"\?\s|\?$", text_no_code):
                                     s["human_questions_count"] += 1
-                                if "```" in full_text or "`" in full_text:
+                                # Code detection: triple backticks or proper inline code
+                                if "```" in full_text or _INLINE_CODE_RE.search(full_text):
                                     s["human_with_code_count"] += 1
                                 if _FILE_PATH_RE.search(full_text):
                                     s["human_with_file_paths_count"] += 1

@@ -191,15 +191,16 @@ def score_session(
     project: str = "",
     date: str = "",
     total_messages: int = 0,
-) -> LLMProfile:
-    """Score a single session using Claude CLI. Returns LLMProfile.
+) -> tuple[LLMProfile, str | None]:
+    """Score a single session using Claude CLI.
 
+    Returns (LLMProfile, error_message). error_message is None on success.
     Never re-scores if cached. Call get_cached_score() first to check.
     """
     # Check cache first
     cached = get_cached_score(session_id)
     if cached is not None:
-        return cached
+        return cached, None
 
     # Sample turns
     turns = sample_turns(session_id)
@@ -209,7 +210,7 @@ def score_session(
             project=project,
             date=date,
             scored_at=datetime.now(UTC).isoformat(),
-        )
+        ), "No turns to sample"
 
     # Build prompt and call Claude CLI
     prompt = _build_prompt(turns)
@@ -229,16 +230,39 @@ def score_session(
         )
 
         if result.returncode != 0:
-            return _fallback_profile(session_id, project, date, len(turns), total_messages, model)
+            stderr_snippet = (result.stderr or "").strip()[:200]
+            error_msg = f"CLI exited with code {result.returncode}"
+            if stderr_snippet:
+                error_msg += f": {stderr_snippet}"
+            return (
+                _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+                error_msg,
+            )
 
         response = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return _fallback_profile(session_id, project, date, len(turns), total_messages, model)
+    except subprocess.TimeoutExpired:
+        return (
+            _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+            "CLI timed out after 120s",
+        )
+    except FileNotFoundError:
+        return (
+            _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+            "'claude' CLI not found on PATH",
+        )
+    except OSError as exc:
+        return (
+            _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+            f"OS error: {exc}",
+        )
 
     # Parse JSON response (handle markdown fences)
     parsed = _parse_llm_response(response)
     if not parsed:
-        return _fallback_profile(session_id, project, date, len(turns), total_messages, model)
+        return (
+            _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+            f"Failed to parse LLM JSON response (first 200 chars): {response[:200]}",
+        )
 
     # Build LLMProfile from parsed response
     dimensions = []
@@ -292,7 +316,7 @@ def score_session(
 
     # Save to permanent cache
     save_llm_score(session_id, profile)
-    return profile
+    return profile, None
 
 
 def _parse_llm_response(response: str) -> dict | None:

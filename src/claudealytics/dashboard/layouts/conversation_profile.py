@@ -570,16 +570,18 @@ def _render_llm_single_session(session_id, profile, get_cached_score_fn, score_s
         st.info("This session hasn't been scored by LLM yet.")
         if st.button("Score with LLM", key="llm_score_btn", type="primary"):
             with st.spinner("Scoring with Claude..."):
-                llm_profile = score_session_fn(
+                llm_profile, error = score_session_fn(
                     session_id=session_id,
                     project=profile.project,
                     date=profile.date,
                 )
-            if llm_profile.dimensions:
+            if error:
+                st.error(f"LLM scoring failed: {error}")
+            elif llm_profile.dimensions:
                 _render_llm_radar(llm_profile)
                 _render_llm_details(llm_profile)
             else:
-                st.warning("LLM scoring returned no dimensions. Check Claude CLI availability.")
+                st.warning("LLM scoring returned no dimensions.")
 
 
 def _batch_score_sessions(unscored_profiles: list, max_batch: int = 50):
@@ -589,14 +591,30 @@ def _batch_score_sessions(unscored_profiles: list, max_batch: int = 50):
     batch = unscored_profiles[:max_batch]
     progress = st.progress(0, text=f"Scoring 0/{len(batch)} sessions...")
 
+    errors: list[str] = []
+    successes = 0
+
     for i, p in enumerate(batch):
+        _profile, error = score_session(
+            session_id=p.session_id, project=p.project, date=p.date,
+        )
+        if error:
+            errors.append(f"{p.session_id[:12]}: {error}")
+        else:
+            successes += 1
         progress.progress(
             (i + 1) / len(batch),
-            text=f"Scoring {i + 1}/{len(batch)} sessions...",
+            text=f"Scoring {i + 1}/{len(batch)} — {successes} ok, {len(errors)} failed",
         )
-        score_session(session_id=p.session_id, project=p.project, date=p.date)
 
     progress.empty()
+
+    if errors:
+        error_preview = "\n".join(errors[:5])
+        extra = f"\n...and {len(errors) - 5} more" if len(errors) > 5 else ""
+        st.error(f"**{len(errors)}/{len(batch)} sessions failed:**\n```\n{error_preview}{extra}\n```")
+    if successes:
+        st.success(f"Successfully scored {successes}/{len(batch)} sessions.")
 
 
 def _render_llm_all_sessions(filtered_profiles, get_all_cached_fn):
@@ -750,7 +768,7 @@ def _render_llm_details(llm_profile):
 
 
 def _render_timeline(profiles: list):
-    """Render weekly rolling category score evolution."""
+    """Render weekly rolling category score evolution + per-dimension charts + animated radar."""
     import pandas as pd
 
     st.subheader(
@@ -758,36 +776,40 @@ def _render_timeline(profiles: list):
         help="Weekly rolling average of category scores across conversations.",
     )
 
-    rows = []
+    # ── Build category-level dataframe ───────────────────────────
+    cat_rows = []
     for p in profiles:
         if not p.date:
             continue
         for cat, score in p.category_scores.items():
-            rows.append({"date": p.date, "category": cat, "score": score})
+            cat_rows.append({"date": p.date, "category": cat, "score": score})
 
-    if not rows:
+    if not cat_rows:
         st.info("Not enough data for timeline.")
         return
 
-    df = pd.DataFrame(rows)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"]).sort_values("date")
+    cat_df = pd.DataFrame(cat_rows)
+    cat_df["date"] = pd.to_datetime(cat_df["date"], errors="coerce")
+    cat_df = cat_df.dropna(subset=["date"]).sort_values("date")
 
+    # ── Category evolution chart (with dynamic y-axis) ───────────
+    all_scores = []
     fig = go.Figure()
     for cat in CATEGORY_ORDER:
-        cat_df = df[df["category"] == cat].copy()
-        if cat_df.empty:
+        sub = cat_df[cat_df["category"] == cat].copy()
+        if sub.empty:
             continue
-        cat_df = cat_df.set_index("date").resample("W")["score"].mean().reset_index()
-        cat_df = cat_df.dropna()
-        if cat_df.empty:
+        sub = sub.set_index("date").resample("W")["score"].mean().reset_index()
+        sub = sub.dropna()
+        if sub.empty:
             continue
 
+        all_scores.extend(sub["score"].tolist())
         icon = CATEGORY_ICONS.get(cat, "")
         fig.add_trace(
             go.Scatter(
-                x=cat_df["date"],
-                y=cat_df["score"],
+                x=sub["date"],
+                y=sub["score"],
                 mode="lines+markers",
                 name=f"{icon} {cat.capitalize()}",
                 line=dict(color=CATEGORY_COLORS.get(cat, "#666"), width=2),
@@ -795,12 +817,253 @@ def _render_timeline(profiles: list):
             )
         )
 
+    if all_scores:
+        y_min = max(1, min(all_scores) - 0.5)
+        y_max = min(10, max(all_scores) + 0.5)
+    else:
+        y_min, y_max = 1, 10
+
     fig.update_layout(
         height=350,
         margin=dict(l=20, r=20, t=40, b=0),
-        yaxis=dict(title="Average Score", range=[1, 10]),
+        yaxis=dict(title="Average Score", range=[y_min, y_max]),
         xaxis_title="Week",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ── Per-dimension evolution charts ───────────────────────────
+    dim_rows = []
+    for p in profiles:
+        if not p.date:
+            continue
+        for d in p.dimensions:
+            dim_rows.append({
+                "date": p.date,
+                "key": d.key,
+                "name": d.name,
+                "category": d.category,
+                "score": d.score,
+            })
+
+    if dim_rows:
+        dim_df = pd.DataFrame(dim_rows)
+        dim_df["date"] = pd.to_datetime(dim_df["date"], errors="coerce")
+        dim_df = dim_df.dropna(subset=["date"]).sort_values("date")
+
+        st.subheader("Per-Dimension Evolution")
+
+        for cat in CATEGORY_ORDER:
+            icon = CATEGORY_ICONS.get(cat, "")
+            color = CATEGORY_COLORS.get(cat, "#666")
+            cat_dims = dim_df[dim_df["category"] == cat]
+            if cat_dims.empty:
+                continue
+
+            with st.expander(f"{icon} {cat.capitalize()} Dimensions", expanded=False):
+                dim_keys = cat_dims["key"].unique()
+                for dim_key in sorted(dim_keys):
+                    sub = cat_dims[cat_dims["key"] == dim_key].copy()
+                    dim_name = sub["name"].iloc[0]
+                    sub = sub.set_index("date").resample("W")["score"].mean().reset_index()
+                    sub = sub.dropna()
+                    if sub.empty:
+                        continue
+
+                    dim_scores = sub["score"].tolist()
+                    d_ymin = max(1, min(dim_scores) - 0.5)
+                    d_ymax = min(10, max(dim_scores) + 0.5)
+
+                    dim_fig = go.Figure()
+                    dim_fig.add_trace(
+                        go.Scatter(
+                            x=sub["date"],
+                            y=sub["score"],
+                            mode="lines+markers",
+                            line=dict(color=color, width=2),
+                            marker=dict(size=4),
+                            name=dim_name,
+                        )
+                    )
+                    dim_fig.update_layout(
+                        height=250,
+                        margin=dict(l=20, r=20, t=30, b=0),
+                        yaxis=dict(title="Score", range=[d_ymin, d_ymax]),
+                        xaxis_title="Week",
+                        title=dict(text=dim_name, font=dict(size=13)),
+                        showlegend=False,
+                    )
+                    st.plotly_chart(dim_fig, use_container_width=True)
+
+    # ── Animated radar progression ───────────────────────────────
+    _render_animated_radar(profiles)
+
+
+def _render_animated_radar(profiles: list):
+    """Render an animated 16-dimension radar chart that plays through weeks."""
+    import pandas as pd
+
+    # Build weekly averaged dimension scores
+    rows = []
+    for p in profiles:
+        if not p.date or not p.dimensions:
+            continue
+        for d in p.dimensions:
+            rows.append({
+                "date": p.date,
+                "key": d.key,
+                "name": d.name,
+                "category": d.category,
+                "score": d.score,
+            })
+
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"])
+    df["week"] = df["date"].dt.to_period("W").dt.start_time
+
+    weeks = sorted(df["week"].unique())
+    if len(weeks) < 2:
+        st.info("Need at least 2 weeks of data for score progression animation.")
+        return
+
+    # Order dimensions by category (same as full radar)
+    ordered_keys = []
+    ordered_names = []
+    for cat in CATEGORY_ORDER:
+        cat_dims = df[df["category"] == cat][["key", "name"]].drop_duplicates()
+        for _, row in cat_dims.sort_values("key").iterrows():
+            if row["key"] not in ordered_keys:
+                ordered_keys.append(row["key"])
+                ordered_names.append(_ABBREV_LABELS.get(row["key"], row["name"]))
+
+    if not ordered_keys:
+        return
+
+    # Close the polygon
+    labels = ordered_names + [ordered_names[0]]
+
+    # Build color list for markers
+    key_to_cat = dict(zip(
+        df["key"], df["category"],
+    ))
+    marker_colors = [CATEGORY_COLORS.get(key_to_cat.get(k, ""), "#666") for k in ordered_keys]
+    marker_colors_closed = marker_colors + [marker_colors[0]]
+
+    # Build frames
+    frames = []
+    week_labels = []
+    for week in weeks:
+        week_data = df[df["week"] == week]
+        week_avg = week_data.groupby("key")["score"].mean()
+
+        scores = [week_avg.get(k, 5.0) for k in ordered_keys]
+        scores_closed = scores + [scores[0]]  # close polygon
+
+        week_label = week.strftime("%Y-%m-%d")
+        week_labels.append(week_label)
+
+        frames.append(go.Frame(
+            data=[go.Scatterpolar(
+                r=scores_closed,
+                theta=labels,
+                fill="toself",
+                fillcolor="rgba(99, 102, 241, 0.12)",
+                line=dict(color="#6366f1", width=2),
+                marker=dict(color=marker_colors_closed, size=8),
+                name="Profile",
+            )],
+            name=week_label,
+        ))
+
+    # Initial frame
+    first_scores = frames[0].data[0].r
+
+    st.subheader("Score Progression Animation")
+
+    fig = go.Figure(
+        data=[go.Scatterpolar(
+            r=first_scores,
+            theta=labels,
+            fill="toself",
+            fillcolor="rgba(99, 102, 241, 0.12)",
+            line=dict(color="#6366f1", width=2),
+            marker=dict(color=marker_colors_closed, size=8),
+            name="Profile",
+        )],
+        frames=frames,
+    )
+
+    # Play/pause buttons
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 10], tickvals=[2, 4, 6, 8, 10]),
+            angularaxis=dict(tickfont=dict(size=10)),
+        ),
+        height=550,
+        margin=dict(l=80, r=80, t=60, b=80),
+        showlegend=False,
+        title=dict(text=f"Week: {week_labels[0]}", font=dict(size=14)),
+        updatemenus=[
+            dict(
+                type="buttons",
+                showactive=False,
+                y=0,
+                x=0.5,
+                xanchor="center",
+                buttons=[
+                    dict(
+                        label="Play",
+                        method="animate",
+                        args=[None, {
+                            "frame": {"duration": 500, "redraw": True},
+                            "fromcurrent": True,
+                            "transition": {"duration": 300},
+                        }],
+                    ),
+                    dict(
+                        label="Pause",
+                        method="animate",
+                        args=[[None], {
+                            "frame": {"duration": 0, "redraw": False},
+                            "mode": "immediate",
+                            "transition": {"duration": 0},
+                        }],
+                    ),
+                ],
+            )
+        ],
+        sliders=[
+            dict(
+                active=0,
+                steps=[
+                    dict(
+                        args=[[wl], {
+                            "frame": {"duration": 300, "redraw": True},
+                            "mode": "immediate",
+                            "transition": {"duration": 300},
+                        }],
+                        label=wl,
+                        method="animate",
+                    )
+                    for wl in week_labels
+                ],
+                x=0.1,
+                len=0.8,
+                xanchor="left",
+                y=0,
+                yanchor="top",
+                currentvalue=dict(
+                    prefix="Week: ",
+                    visible=True,
+                    xanchor="center",
+                ),
+                transition=dict(duration=300),
+            )
+        ],
     )
     st.plotly_chart(fig, use_container_width=True)
 

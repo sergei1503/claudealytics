@@ -5,7 +5,57 @@
 [![PyPI](https://img.shields.io/pypi/v/claudealytics)](https://pypi.org/project/claudealytics/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Analytics dashboard for Claude Code power users. Mine your local conversation history to understand usage patterns, track costs, and optimize your workflow. All analysis runs locally.
+**See how you work with Claude Code.** Get an 8-dimension collaboration score, compare with other developers on [guilder.dev](https://guilder.dev/community), and track how your AI workflow improves over time.
+
+All analysis runs locally — only your scores are published.
+
+<!-- TODO: Replace with actual terminal GIF once recorded with vhs -->
+<!-- <p align="center">
+  <img src="docs/demo.gif" alt="claudealytics publish demo" width="720">
+</p> -->
+
+## Get Your Score in 30 Seconds
+
+```bash
+uvx claudealytics publish
+```
+
+That's it. No API keys, no sign-up, no config. One command that:
+1. Analyzes your local Claude Code data (`~/.claude/`)
+2. Computes your 8-dimension collaboration score
+3. Opens a browser where you claim your profile on [guilder.dev](https://guilder.dev)
+
+Already have Python package managers? These work too:
+```bash
+pipx run claudealytics publish    # via pipx
+pip install claudealytics && claudealytics publish  # traditional
+```
+
+## What Gets Scored
+
+Your collaboration style across 8 dimensions, grouped into 4 categories:
+
+| Category | Dimensions | What it measures |
+|----------|-----------|-----------------|
+| **Technical** | Cache Efficiency, Error Rate | How well you leverage caching, how cleanly sessions run |
+| **Strategy** | Read Before Write, Token Efficiency, Model Balance | Do you read before editing? Use models efficiently? |
+| **Communication** | Config Health | How well-structured your Claude setup is |
+| **Autonomy** | Autonomy & Efficiency, Agent & Skill Utilization | How independently Claude works for you, how much you use agents/skills |
+
+Scores combine into an overall rating (0-100) with a radar chart showing your strengths.
+
+## The Leaderboard
+
+Claimed profiles appear on [guilder.dev/community](https://guilder.dev/community) — a public leaderboard for AI-native developers. See how your workflow compares, discover what top developers do differently.
+
+## Local Dashboard
+
+Want deeper analytics? The full Streamlit dashboard gives you token breakdowns, cost tracking, session insights, and more:
+
+```bash
+pip install 'claudealytics[dashboard]'
+claudealytics dashboard
+```
 
 <p align="center">
   <a href="#screenshots"><img src="docs/screenshots/report.png" width="24%" alt="Report"></a>
@@ -14,79 +64,49 @@ Analytics dashboard for Claude Code power users. Mine your local conversation hi
   <a href="#screenshots"><img src="docs/screenshots/agent_usage.png" width="24%" alt="Agent Usage"></a>
 </p>
 
-## Quick Start
+<details>
+<summary>More screenshots</summary>
+
+| | |
+|---|---|
+| ![Report](docs/screenshots/report.png) **Report** — LLM-scored health assessment | ![Config Health](docs/screenshots/config_health.png) **Config Health** |
+| ![Daily Tokens](docs/screenshots/daily_input_tokens.png) **Daily Input Tokens** | ![Cache Hit Rate](docs/screenshots/cache_hit_rate.png) **Cache Hit Rate** |
+| ![Tool Calls](docs/screenshots/daily_tool_calls.png) **Daily Tool Calls** | ![Tool Types](docs/screenshots/tool_usage_type.png) **Tool Usage by Type** |
+| ![RBW](docs/screenshots/read_before_write.png) **Read-Before-Write** | ![Complexity](docs/screenshots/complexity.png) **Complexity Over Time** |
+| ![Languages](docs/screenshots/language_trend.png) **Language Trend** | ![Ecosystem](docs/screenshots/ecosystem_signals.png) **Ecosystem Signals** |
+
+</details>
+
+## All CLI Commands
 
 ```bash
-pip install claudealytics
-claudealytics dashboard
-```
-
-## What You Get
-
-- **LLM-generated report** with a scored health assessment across 8 dimensions
-- **Token & cache analytics** — input/output breakdown by model, cache hit rates, cost savings
-- **Session insights** — tool call patterns, duration trends, hourly heatmaps
-- **Conversation analysis** — agentic loops, read-before-write discipline, complexity scoring
-- **Tech stack profiling** — language distribution, ecosystem signals, testing discipline
-- **Agent & skill tracking** — usage frequency, trends, inventory, unmapped detection
-- **Config health** — file sizes, growth history, quality issues
-
-## Screenshots
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/report.png" alt="Report"><br><strong>Report</strong> — LLM-scored health assessment</td>
-<td width="50%"><img src="docs/screenshots/config_health.png" alt="Config Health"><br><strong>Config Health</strong> — File sizes and quality issues</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/daily_input_tokens.png" alt="Daily Input Tokens"><br><strong>Daily Input Tokens</strong> — Token consumption by model</td>
-<td><img src="docs/screenshots/cache_hit_rate.png" alt="Cache Hit Rate"><br><strong>Cache Hit Rate</strong> — Daily cache efficiency</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/daily_tool_calls.png" alt="Daily Tool Calls"><br><strong>Daily Tool Calls</strong> — Tool usage over time</td>
-<td><img src="docs/screenshots/tool_usage_type.png" alt="Tool Usage by Type"><br><strong>Tool Usage by Type</strong> — Read/write/execute breakdown</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/read_before_write.png" alt="Read-Before-Write"><br><strong>Read-Before-Write</strong> — Code discipline tracking</td>
-<td><img src="docs/screenshots/complexity.png" alt="Complexity Over Time"><br><strong>Complexity Over Time</strong> — Session complexity trends</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/language_trend.png" alt="Language Trend"><br><strong>Language Trend</strong> — Language distribution over time</td>
-<td><img src="docs/screenshots/ecosystem_signals.png" alt="Ecosystem Signals"><br><strong>Ecosystem Signals</strong> — Framework and tool detection</td>
-</tr>
-<tr>
-<td colspan="2" align="center"><img src="docs/screenshots/agent_usage.png" alt="Agent Usage Over Time" width="60%"><br><strong>Agent Usage Over Time</strong> — Agent invocation trends</td>
-</tr>
-</table>
-
-## CLI Commands
-
-```bash
-claudealytics dashboard           # Launch interactive dashboard
+claudealytics publish             # Publish your score to guilder.dev
+claudealytics stats               # Quick terminal summary
 claudealytics scan                # Infrastructure scan (agents, skills, routing)
 claudealytics optimize            # Optimization analysis (markdown report)
-claudealytics stats               # Quick terminal summary
-claudealytics tools               # Check external tool versions
+claudealytics export-json         # Export raw data as JSON
+claudealytics dashboard           # Launch full Streamlit dashboard (requires [dashboard] extra)
 ```
 
 ## How It Works
 
-Claudealytics reads local Claude Code data — no external API calls required (the Report tab optionally uses `claude` CLI for LLM synthesis).
+Claudealytics reads local Claude Code data — no external API calls for analysis.
 
-| Source | Location | Purpose |
-|--------|----------|---------|
-| Stats cache | `~/.claude/stats-cache.json` | Pre-aggregated usage statistics |
-| Conversation archives | `~/.claude/projects/*/` | Historical tool usage, content mining |
-| Execution logs | `~/.claude/execution-logs/` | Recent agent/skill executions |
-| Agent/skill definitions | `~/.claude/agents/`, `~/.claude/skills/` | Configuration inventory |
-| CLAUDE.md files | `~/.claude/CLAUDE.md` + project dirs | Routing rules and configuration |
+| Source | Location | What's analyzed |
+|--------|----------|----------------|
+| Stats cache | `~/.claude/stats-cache.json` | Usage statistics |
+| Conversations | `~/.claude/projects/*/` | Tool usage, content patterns |
+| Execution logs | `~/.claude/execution-logs/` | Agent/skill executions |
+| Config files | `~/.claude/agents/`, `~/.claude/skills/`, `CLAUDE.md` | Setup quality |
+
+When you run `publish`, computed scores (not raw data) are sent to guilder.dev. Your conversations, file contents, and personal data never leave your machine.
 
 ## Development
 
 ```bash
 git clone https://github.com/sergei1503/claudealytics.git
 cd claudealytics
-uv sync --extra dev --extra test
+uv sync --extra dev --extra test --extra dashboard
 uv run pytest -v
 ```
 
