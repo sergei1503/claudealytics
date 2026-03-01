@@ -47,7 +47,10 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not integration'"
+markers = [
+    "integration: integration tests requiring external services (guilder dev server)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claudealytics"]

@@ -44,3 +44,6 @@ def mock_streamlit(monkeypatch):
     monkeypatch.setattr(st, "slider", lambda *a, **kw: kw.get("value", 1))
     monkeypatch.setattr(st, "expander", lambda *a, **kw: _FakeExpander())
     monkeypatch.setattr(st, "date_input", lambda *a, **kw: kw.get("value"))
+    monkeypatch.setattr(st, "info", MagicMock())
+    monkeypatch.setattr(st, "markdown", MagicMock())
+    monkeypatch.setattr(st, "caption", MagicMock())
