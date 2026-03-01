@@ -199,16 +199,24 @@ class TestSemanticDensity:
 
 class TestContextPrecision:
     def test_zero_human_messages(self):
-        s = {"human_msg_count": 0, "human_with_file_paths_count": 0,
-             "human_with_code_count": 0, "intervention_guidance": 0,
-             "total_text_length_human": 0}
+        s = {
+            "human_msg_count": 0,
+            "human_with_file_paths_count": 0,
+            "human_with_code_count": 0,
+            "intervention_guidance": 0,
+            "total_text_length_human": 0,
+        }
         result = score_context_precision(s, pd.DataFrame(), pd.DataFrame())
         assert 1.0 <= result.score <= 10.0
 
     def test_all_messages_have_paths_and_code(self):
-        s = {"human_msg_count": 10, "human_with_file_paths_count": 10,
-             "human_with_code_count": 10, "intervention_guidance": 5,
-             "total_text_length_human": 3000}
+        s = {
+            "human_msg_count": 10,
+            "human_with_file_paths_count": 10,
+            "human_with_code_count": 10,
+            "intervention_guidance": 5,
+            "total_text_length_human": 3000,
+        }
         result = score_context_precision(s, pd.DataFrame(), pd.DataFrame())
         assert result.score > 5.0
 
@@ -218,16 +226,26 @@ class TestContextPrecision:
 
 class TestConversationBalance:
     def test_zero_questions(self):
-        s = {"human_msg_count": 5, "assistant_msg_count": 15,
-             "total_text_length_human": 500, "total_text_length_assistant": 5000,
-             "total_messages": 20, "human_questions_count": 0}
+        s = {
+            "human_msg_count": 5,
+            "assistant_msg_count": 15,
+            "total_text_length_human": 500,
+            "total_text_length_assistant": 5000,
+            "total_messages": 20,
+            "human_questions_count": 0,
+        }
         result = score_conversation_balance(s, pd.DataFrame(), pd.DataFrame())
         assert result.score >= 1.0
 
     def test_high_question_frequency(self):
-        s = {"human_msg_count": 10, "assistant_msg_count": 30,
-             "total_text_length_human": 1000, "total_text_length_assistant": 10000,
-             "total_messages": 40, "human_questions_count": 5}
+        s = {
+            "human_msg_count": 10,
+            "assistant_msg_count": 30,
+            "total_text_length_human": 1000,
+            "total_text_length_assistant": 10000,
+            "total_messages": 40,
+            "human_questions_count": 5,
+        }
         result = score_conversation_balance(s, pd.DataFrame(), pd.DataFrame())
         assert result.score >= 1.0
         assert result.score <= 10.0
@@ -261,10 +279,12 @@ class TestDistributionSanity:
             "unique_tools": ["Read"],
             "sidechain_count": 0,
         }
-        minimal_tc = pd.DataFrame({
-            "session_id": ["s1"] * 2,
-            "tool_name": ["Read", "Read"],
-        })
+        minimal_tc = pd.DataFrame(
+            {
+                "session_id": ["s1"] * 2,
+                "tool_name": ["Read", "Read"],
+            }
+        )
 
         # Active session: many messages, diverse tools, lots of output
         active = {
@@ -280,10 +300,18 @@ class TestDistributionSanity:
             "unique_tools": ["Read", "Grep", "Edit", "Bash", "Write", "Glob", "Task"],
             "sidechain_count": 4,
         }
-        active_tc = pd.DataFrame({
-            "session_id": ["s2"] * 60,
-            "tool_name": ["Read"] * 15 + ["Grep"] * 10 + ["Edit"] * 15 + ["Bash"] * 10 + ["Write"] * 5 + ["Task"] * 3 + ["Skill"] * 2,
-        })
+        active_tc = pd.DataFrame(
+            {
+                "session_id": ["s2"] * 60,
+                "tool_name": ["Read"] * 15
+                + ["Grep"] * 10
+                + ["Edit"] * 15
+                + ["Bash"] * 10
+                + ["Write"] * 5
+                + ["Task"] * 3
+                + ["Skill"] * 2,
+            }
+        )
 
         empty_hm = pd.DataFrame()
 
@@ -293,6 +321,5 @@ class TestDistributionSanity:
             act_score = scorer(active, active_tc, empty_hm).score
             diff = act_score - min_score
             assert diff > 2.0, (
-                f"{scorer.__name__}: minimal={min_score}, active={act_score}, "
-                f"diff={diff:.1f} (expected >2.0)"
+                f"{scorer.__name__}: minimal={min_score}, active={act_score}, diff={diff:.1f} (expected >2.0)"
             )

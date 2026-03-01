@@ -273,25 +273,29 @@ def score_session(
         if key not in dim_lookup:
             continue
         dim_def = dim_lookup[key]
-        dimensions.append(LLMDimensionScore(
-            key=key,
-            name=dim_def["name"],
-            category=dim_def["category"],
-            score=max(1.0, min(10.0, float(dim_data.get("score", 5.0)))),
-            reasoning=dim_data.get("reasoning", ""),
-            evidence_quotes=dim_data.get("evidence_quotes", []),
-            confidence=max(0.0, min(1.0, float(dim_data.get("confidence", 0.5)))),
-        ))
+        dimensions.append(
+            LLMDimensionScore(
+                key=key,
+                name=dim_def["name"],
+                category=dim_def["category"],
+                score=max(1.0, min(10.0, float(dim_data.get("score", 5.0)))),
+                reasoning=dim_data.get("reasoning", ""),
+                evidence_quotes=dim_data.get("evidence_quotes", []),
+                confidence=max(0.0, min(1.0, float(dim_data.get("confidence", 0.5)))),
+            )
+        )
 
     # Fill missing dimensions with defaults
     scored_keys = {d.key for d in dimensions}
     for dim_def in LLM_DIMENSIONS:
         if dim_def["key"] not in scored_keys:
-            dimensions.append(LLMDimensionScore(
-                key=dim_def["key"],
-                name=dim_def["name"],
-                category=dim_def["category"],
-            ))
+            dimensions.append(
+                LLMDimensionScore(
+                    key=dim_def["key"],
+                    name=dim_def["name"],
+                    category=dim_def["category"],
+                )
+            )
 
     # Compute category and overall scores
     category_scores: dict[str, list[float]] = {}

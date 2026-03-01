@@ -112,9 +112,7 @@ class TestSummaryGapsNoHints:
         _render_summary(profile, session_count=3)
 
         # Collect all markdown call text
-        all_markdown_text = " ".join(
-            str(call[0][0]) for call in st.markdown.call_args_list if call[0]
-        )
+        all_markdown_text = " ".join(str(call[0][0]) for call in st.markdown.call_args_list if call[0])
 
         # The improvement_hint "try harder" should NOT appear in the summary
         assert "try harder" not in all_markdown_text

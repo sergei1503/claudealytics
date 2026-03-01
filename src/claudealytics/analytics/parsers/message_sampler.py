@@ -102,11 +102,13 @@ def sample_turns(session_id: str, max_pairs: int = 10, max_chars: int = 1500) ->
     i = 0
     while i < len(messages) - 1:
         if messages[i]["role"] == "human" and messages[i + 1]["role"] == "assistant":
-            pairs.append({
-                "human": messages[i]["text"][:max_chars],
-                "assistant": messages[i + 1]["text"][:max_chars],
-                "turn_index": len(pairs),
-            })
+            pairs.append(
+                {
+                    "human": messages[i]["text"][:max_chars],
+                    "assistant": messages[i + 1]["text"][:max_chars],
+                    "turn_index": len(pairs),
+                }
+            )
             i += 2
         else:
             i += 1

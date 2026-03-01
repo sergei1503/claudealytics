@@ -302,7 +302,9 @@ def export_profile(
         console.print(f"[bold green]Exported profile to {output}[/]")
         console.print(f"   {profile.sessions_analyzed} sessions analyzed")
         console.print(f"   {len(profile.dimensions)} heuristic dimensions")
-        console.print(f"   {len(profile.llm_dimensions)} LLM dimensions ({profile.llm_sessions_scored} sessions scored)")
+        console.print(
+            f"   {len(profile.llm_dimensions)} LLM dimensions ({profile.llm_sessions_scored} sessions scored)"
+        )
         console.print(f"   Overall score: {profile.overall_score}/10")
     else:
         print(json_str)
@@ -413,22 +415,29 @@ def publish(
 
     # Save claim code for future uploads
     config_dir.mkdir(parents=True, exist_ok=True)
-    config_file.write_text(json.dumps({
-        "claimCode": result["claimCode"],
-        "server": server,
-    }, indent=2))
+    config_file.write_text(
+        json.dumps(
+            {
+                "claimCode": result["claimCode"],
+                "server": server,
+            },
+            indent=2,
+        )
+    )
 
     # Display results
     score = result.get("overallScore", 0)
     claim_url = result["claimUrl"]
 
     console.print()
-    console.print(Panel.fit(
-        f"[bold green]Score: {score:.1f}/10[/bold green]\n\n"
-        f"Claim your profile:\n[bold cyan]{claim_url}[/bold cyan]",
-        title="Published to guilder.dev",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold green]Score: {score:.1f}/10[/bold green]\n\n"
+            f"Claim your profile:\n[bold cyan]{claim_url}[/bold cyan]",
+            title="Published to guilder.dev",
+            border_style="green",
+        )
+    )
 
     # Open browser
     webbrowser.open(claim_url)

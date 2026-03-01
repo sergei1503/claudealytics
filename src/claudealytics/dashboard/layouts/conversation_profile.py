@@ -62,9 +62,7 @@ def render(stats):
         filtered_profiles = profiles
 
     with col_session:
-        session_options = ["All Sessions (Overall)"] + [
-            f"{p.date} — {p.session_id[:12]}..." for p in filtered_profiles
-        ]
+        session_options = ["All Sessions (Overall)"] + [f"{p.date} — {p.session_id[:12]}..." for p in filtered_profiles]
         selected_session = st.selectbox("Session", session_options, key="profile_session")
 
     if selected_session == "All Sessions (Overall)":
@@ -480,7 +478,9 @@ def _render_subscore_waterfall(dim):
     # Flag extreme sub-scores
     for s in subs:
         if s.normalized == 0.0:
-            st.caption(f"\u26a0\ufe0f **{s.name}**: This signal wasn't detected (e.g., no questions asked, no tests run).")
+            st.caption(
+                f"\u26a0\ufe0f **{s.name}**: This signal wasn't detected (e.g., no questions asked, no tests run)."
+            )
         elif s.normalized >= 1.0:
             st.caption(f"\u2b50 **{s.name}**: Perfect score \u2014 verify this isn't an artifact of a short session.")
 
@@ -552,7 +552,9 @@ def _batch_score_sessions(unscored_profiles: list, max_batch: int = 50):
 
     for i, p in enumerate(batch):
         _profile, error = score_session(
-            session_id=p.session_id, project=p.project, date=p.date,
+            session_id=p.session_id,
+            project=p.project,
+            date=p.date,
         )
         if error:
             errors.append(f"{p.session_id[:12]}: {error}")
@@ -617,14 +619,16 @@ def _render_llm_all_sessions(filtered_profiles, get_all_cached_fn):
     avg_dims = []
     for key, scores in dim_scores.items():
         meta = dim_meta[key]
-        avg_dims.append(LLMDimensionScore(
-            key=key,
-            name=meta["name"],
-            category=meta["category"],
-            score=round(sum(scores) / len(scores), 1),
-            reasoning=f"Averaged from {len(scores)} sessions",
-            confidence=round(len(scores) / len(session_ids), 2),
-        ))
+        avg_dims.append(
+            LLMDimensionScore(
+                key=key,
+                name=meta["name"],
+                category=meta["category"],
+                score=round(sum(scores) / len(scores), 1),
+                reasoning=f"Averaged from {len(scores)} sessions",
+                confidence=round(len(scores) / len(session_ids), 2),
+            )
+        )
 
     cat_scores: dict[str, list[float]] = {}
     for d in avg_dims:
@@ -794,13 +798,15 @@ def _render_timeline(profiles: list):
         if not p.date:
             continue
         for d in p.dimensions:
-            dim_rows.append({
-                "date": p.date,
-                "key": d.key,
-                "name": d.name,
-                "category": d.category,
-                "score": d.score,
-            })
+            dim_rows.append(
+                {
+                    "date": p.date,
+                    "key": d.key,
+                    "name": d.name,
+                    "category": d.category,
+                    "score": d.score,
+                }
+            )
 
     if dim_rows:
         dim_df = pd.DataFrame(dim_rows)
@@ -865,13 +871,15 @@ def _render_animated_radar(profiles: list):
         if not p.date or not p.dimensions:
             continue
         for d in p.dimensions:
-            rows.append({
-                "date": p.date,
-                "key": d.key,
-                "name": d.name,
-                "category": d.category,
-                "score": d.score,
-            })
+            rows.append(
+                {
+                    "date": p.date,
+                    "key": d.key,
+                    "name": d.name,
+                    "category": d.category,
+                    "score": d.score,
+                }
+            )
 
     if not rows:
         return
@@ -903,9 +911,12 @@ def _render_animated_radar(profiles: list):
     labels = ordered_names + [ordered_names[0]]
 
     # Build color list for markers
-    key_to_cat = dict(zip(
-        df["key"], df["category"],
-    ))
+    key_to_cat = dict(
+        zip(
+            df["key"],
+            df["category"],
+        )
+    )
     marker_colors = [CATEGORY_COLORS.get(key_to_cat.get(k, ""), "#666") for k in ordered_keys]
     marker_colors_closed = marker_colors + [marker_colors[0]]
 
@@ -922,18 +933,22 @@ def _render_animated_radar(profiles: list):
         week_label = week.strftime("%Y-%m-%d")
         week_labels.append(week_label)
 
-        frames.append(go.Frame(
-            data=[go.Scatterpolar(
-                r=scores_closed,
-                theta=labels,
-                fill="toself",
-                fillcolor="rgba(99, 102, 241, 0.12)",
-                line=dict(color="#6366f1", width=2),
-                marker=dict(color=marker_colors_closed, size=8),
-                name="Profile",
-            )],
-            name=week_label,
-        ))
+        frames.append(
+            go.Frame(
+                data=[
+                    go.Scatterpolar(
+                        r=scores_closed,
+                        theta=labels,
+                        fill="toself",
+                        fillcolor="rgba(99, 102, 241, 0.12)",
+                        line=dict(color="#6366f1", width=2),
+                        marker=dict(color=marker_colors_closed, size=8),
+                        name="Profile",
+                    )
+                ],
+                name=week_label,
+            )
+        )
 
     # Initial frame
     first_scores = frames[0].data[0].r
@@ -941,15 +956,17 @@ def _render_animated_radar(profiles: list):
     st.subheader("Score Progression Animation")
 
     fig = go.Figure(
-        data=[go.Scatterpolar(
-            r=first_scores,
-            theta=labels,
-            fill="toself",
-            fillcolor="rgba(99, 102, 241, 0.12)",
-            line=dict(color="#6366f1", width=2),
-            marker=dict(color=marker_colors_closed, size=8),
-            name="Profile",
-        )],
+        data=[
+            go.Scatterpolar(
+                r=first_scores,
+                theta=labels,
+                fill="toself",
+                fillcolor="rgba(99, 102, 241, 0.12)",
+                line=dict(color="#6366f1", width=2),
+                marker=dict(color=marker_colors_closed, size=8),
+                name="Profile",
+            )
+        ],
         frames=frames,
     )
 
@@ -974,20 +991,26 @@ def _render_animated_radar(profiles: list):
                     dict(
                         label="Play",
                         method="animate",
-                        args=[None, {
-                            "frame": {"duration": 500, "redraw": True},
-                            "fromcurrent": True,
-                            "transition": {"duration": 300},
-                        }],
+                        args=[
+                            None,
+                            {
+                                "frame": {"duration": 500, "redraw": True},
+                                "fromcurrent": True,
+                                "transition": {"duration": 300},
+                            },
+                        ],
                     ),
                     dict(
                         label="Pause",
                         method="animate",
-                        args=[[None], {
-                            "frame": {"duration": 0, "redraw": False},
-                            "mode": "immediate",
-                            "transition": {"duration": 0},
-                        }],
+                        args=[
+                            [None],
+                            {
+                                "frame": {"duration": 0, "redraw": False},
+                                "mode": "immediate",
+                                "transition": {"duration": 0},
+                            },
+                        ],
                     ),
                 ],
             )
@@ -997,11 +1020,14 @@ def _render_animated_radar(profiles: list):
                 active=0,
                 steps=[
                     dict(
-                        args=[[wl], {
-                            "frame": {"duration": 300, "redraw": True},
-                            "mode": "immediate",
-                            "transition": {"duration": 300},
-                        }],
+                        args=[
+                            [wl],
+                            {
+                                "frame": {"duration": 300, "redraw": True},
+                                "mode": "immediate",
+                                "transition": {"duration": 300},
+                            },
+                        ],
                         label=wl,
                         method="animate",
                     )
@@ -1071,7 +1097,9 @@ def _load_profiles_with_progress() -> list:
         bar.progress(fraction, text=message)
 
     profiles = compute_all_profiles(
-        session_stats, tool_calls, human_lengths,
+        session_stats,
+        tool_calls,
+        human_lengths,
         use_cache=True,
         progress_callback=_on_progress,
     )

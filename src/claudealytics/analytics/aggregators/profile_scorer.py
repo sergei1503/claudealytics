@@ -59,6 +59,7 @@ def _save_profile_cache(profiles: list[ConversationProfile]):
     with open(PROFILE_CACHE_PATH, "w") as f:
         json.dump(cache_data, f)
 
+
 # ── Helpers ─────────────────────────────────────────────────────
 
 
@@ -75,6 +76,7 @@ def _dampen(raw_score: float, human_msg_count: int, threshold: int = 2) -> float
     if human_msg_count == 0:
         return 5.0
     import math
+
     confidence = min(math.log2(human_msg_count + 1) / math.log2(threshold + 2), 1.0)
     return 5.0 + (raw_score - 5.0) * confidence
 
@@ -505,7 +507,13 @@ def score_code_literacy(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensio
     subs = [
         _sub("Code in messages", code_pct, code_pct, 0.35, "1.0 = every message has code"),
         _sub("File path references", path_pct, path_pct, 0.25, "1.0 = every message has paths"),
-        _sub("Code+correction overlap", code_correction_overlap, code_correction_overlap, 0.20, "Corrections with code context"),
+        _sub(
+            "Code+correction overlap",
+            code_correction_overlap,
+            code_correction_overlap,
+            0.20,
+            "Corrections with code context",
+        ),
         _sub("Detail level", avg_len, detail_level, 0.20, "Avg message length / 500"),
     ]
 
@@ -681,7 +689,9 @@ def score_token_efficiency(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
     if oi_score < 0.3:
         hint = "Low output-per-input ratio — large context windows with little output suggest inefficient token use."
     elif error_rate > 0.15:
-        hint = f"Error rate of {error_rate:.0%} per tool call — more precise instructions reduce wasted tokens on retries."
+        hint = (
+            f"Error rate of {error_rate:.0%} per tool call — more precise instructions reduce wasted tokens on retries."
+        )
 
     return DimensionScore(
         key="token_efficiency",
@@ -763,9 +773,7 @@ def score_tool_orchestration(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dim
         skill_count = int((tc["tool_name"] == "Skill").sum())
         # System investment: tool_calls touching ~/.claude/ paths
         if "file_path" in tc.columns:
-            system_investment_count = int(
-                tc["file_path"].fillna("").str.contains(r"\.claude/", regex=True).sum()
-            )
+            system_investment_count = int(tc["file_path"].fillna("").str.contains(r"\.claude/", regex=True).sum())
 
     diversity_score = min(tool_diversity / 5, 1.0)
     agent_skill_score = min((agent_count + skill_count) / 5, 1.0)
@@ -881,7 +889,9 @@ def score_session_productivity(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
                 if col in bash_calls.columns:
                     commands = bash_calls[col].fillna("").str.lower()
                     completion_signals += int(commands.str.contains("git commit").sum())
-                    completion_signals += int(commands.str.contains(r"(npm|yarn|pnpm)\s+(test|run\s+test)", regex=True).sum())
+                    completion_signals += int(
+                        commands.str.contains(r"(npm|yarn|pnpm)\s+(test|run\s+test)", regex=True).sum()
+                    )
                     completion_signals += int(commands.str.contains(r"pytest|vitest|jest", regex=True).sum())
                     break
     completion_score = min(completion_signals / 3, 1.0)
