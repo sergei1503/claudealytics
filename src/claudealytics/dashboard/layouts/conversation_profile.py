@@ -352,9 +352,8 @@ def _render_summary(profile, session_count: int):
     st.markdown("**Bottom 3 Gaps**")
     for d in sorted_dims[-3:]:
         color = CATEGORY_COLORS.get(d.category, "#666")
-        hint_text = f" — *{d.improvement_hint}*" if d.improvement_hint else ""
         st.markdown(
-            f"- <span style='color:{color}'>{d.name}</span> — **{d.score}**{hint_text}",
+            f"- <span style='color:{color}'>{d.name}</span> — **{d.score}**",
             unsafe_allow_html=True,
         )
 
@@ -390,56 +389,13 @@ def _interpret_subscore(sub) -> str:
 
 
 def _render_dimension_details(profile):
-    """Render expandable dimension details grouped by category."""
+    """Gated section — detailed sub-score analysis is on guilder.dev."""
     st.subheader("Dimension Details")
-
-    for cat in CATEGORY_ORDER:
-        cat_dims = [d for d in profile.dimensions if d.category == cat]
-        if not cat_dims:
-            continue
-
-        icon = CATEGORY_ICONS.get(cat, "")
-        color = CATEGORY_COLORS.get(cat, "#666")
-        st.markdown(
-            f"<h4 style='color:{color}'>{icon} {cat.capitalize()}</h4>",
-            unsafe_allow_html=True,
-        )
-
-        for d in cat_dims:
-            tier_label, tier_color = _score_tier_label(d.score)
-            with st.expander(f"{d.name} — {d.score}/10"):
-                # Score interpretation
-                st.markdown(
-                    f"Your score: **{d.score}/10** "
-                    f"(<span style='color:{tier_color};font-weight:bold'>{tier_label}</span>)",
-                    unsafe_allow_html=True,
-                )
-
-                # Extreme score warnings
-                if d.score <= 1.5:
-                    st.warning("This extreme score may indicate insufficient data or an unusual session pattern.")
-                elif d.score >= 9.5:
-                    st.warning("Perfect scores are rare \u2014 verify this reflects genuine practice.")
-
-                # Guide text
-                if d.guide:
-                    st.markdown(f"*{d.guide}*")
-
-                # Sub-score waterfall bar chart
-                if d.sub_scores:
-                    _render_subscore_waterfall(d)
-
-                    # Sub-score interpretation table
-                    st.markdown("**Sub-score breakdown:**")
-                    for sub in d.sub_scores:
-                        st.markdown(f"- **{sub.name}**: {_interpret_subscore(sub)}")
-
-                # Improvement hint
-                if d.improvement_hint:
-                    st.info(f"\U0001f4a1 **Tip:** {d.improvement_hint}")
-
-                # Explanation
-                st.caption(d.explanation)
+    st.info(
+        "\U0001f50d **Detailed sub-score analysis, improvement guides, and work pattern insights** "
+        "are available on [guilder.dev](https://guilder.dev).\n\n"
+        "Upload your profile to get personalized improvement recommendations."
+    )
 
 
 def _format_raw_value(raw_value: float, threshold: str, name: str = "") -> str:
