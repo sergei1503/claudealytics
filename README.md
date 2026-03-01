@@ -1,3 +1,5 @@
+<div align="center">
+
 # Claudealytics
 
 [![CI](https://github.com/sergei1503/claudealytics/actions/workflows/ci.yml/badge.svg)](https://github.com/sergei1503/claudealytics/actions/workflows/ci.yml)
@@ -5,30 +7,38 @@
 [![PyPI](https://img.shields.io/pypi/v/claudealytics)](https://pypi.org/project/claudealytics/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**See how you work with Claude Code.** Get an 8-dimension collaboration score, compare with other developers on [guilder.dev](https://guilder.dev/community), and track how your AI workflow improves over time.
+**See how you collaborate with Claude Code.**
+All analysis runs locally on your machine.
 
-All analysis runs locally — only your scores are published.
+<p>
+  <img src="docs/screenshots/spider_web_full.png" width="45%" alt="16-Dimension Collaboration Profile">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/spider_web_composite.png" width="45%" alt="4-Category Composite Score">
+</p>
 
-<!-- TODO: Replace with actual terminal GIF once recorded with vhs -->
-<!-- <p align="center">
-  <img src="docs/demo.gif" alt="claudealytics publish demo" width="720">
-</p> -->
+<em>Your collaboration profile across 16 dimensions — generated from your local Claude Code data</em>
 
-## Get Your Score in 30 Seconds
+</div>
+
+## Get Started
 
 ```bash
-uvx claudealytics publish
+uvx claudealytics stats
 ```
 
-That's it. No API keys, no sign-up, no config. One command that:
-1. Analyzes your local Claude Code data (`~/.claude/`)
-2. Computes your 8-dimension collaboration score
-3. Opens a browser where you claim your profile on [guilder.dev](https://guilder.dev)
+That's it. No API keys, no sign-up, no config. One command that analyzes your local Claude Code data (`~/.claude/`) and shows your 16-dimension collaboration score right in the terminal.
 
-Already have Python package managers? These work too:
+Want the full visual experience with spider charts and deep analytics?
+
 ```bash
-pipx run claudealytics publish    # via pipx
-pip install claudealytics && claudealytics publish  # traditional
+pip install 'claudealytics[dashboard]'
+claudealytics dashboard
+```
+
+Alternative ways to run:
+```bash
+pipx run claudealytics stats         # via pipx
+pip install claudealytics && claudealytics stats  # traditional
 ```
 
 ## What Gets Scored
@@ -44,13 +54,9 @@ Your collaboration style across 8 dimensions, grouped into 4 categories:
 
 Scores combine into an overall rating (0-100) with a radar chart showing your strengths.
 
-## The Leaderboard
-
-Claimed profiles appear on [guilder.dev/community](https://guilder.dev/community) — a public leaderboard for AI-native developers. See how your workflow compares, discover what top developers do differently.
-
 ## Local Dashboard
 
-Want deeper analytics? The full Streamlit dashboard gives you token breakdowns, cost tracking, session insights, and more:
+The full Streamlit dashboard gives you token breakdowns, cost tracking, session insights, and more:
 
 ```bash
 pip install 'claudealytics[dashboard]'
@@ -77,15 +83,25 @@ claudealytics dashboard
 
 </details>
 
+## Share & Compare
+
+Want to see how you compare? Publish your profile to the community leaderboard:
+
+```bash
+claudealytics publish
+```
+
+This computes your scores and opens a browser where you claim your profile on [guilder.dev](https://guilder.dev/community). Only computed scores are shared — your conversations, file contents, and personal data never leave your machine.
+
 ## All CLI Commands
 
 ```bash
-claudealytics publish             # Publish your score to guilder.dev
 claudealytics stats               # Quick terminal summary
+claudealytics dashboard           # Launch full Streamlit dashboard (requires [dashboard] extra)
+claudealytics publish             # Publish your score to guilder.dev
 claudealytics scan                # Infrastructure scan (agents, skills, routing)
 claudealytics optimize            # Optimization analysis (markdown report)
 claudealytics export-json         # Export raw data as JSON
-claudealytics dashboard           # Launch full Streamlit dashboard (requires [dashboard] extra)
 ```
 
 ## How It Works
@@ -98,8 +114,6 @@ Claudealytics reads local Claude Code data — no external API calls for analysi
 | Conversations | `~/.claude/projects/*/` | Tool usage, content patterns |
 | Execution logs | `~/.claude/execution-logs/` | Agent/skill executions |
 | Config files | `~/.claude/agents/`, `~/.claude/skills/`, `CLAUDE.md` | Setup quality |
-
-When you run `publish`, computed scores (not raw data) are sent to guilder.dev. Your conversations, file contents, and personal data never leave your machine.
 
 ## Development
 

@@ -358,22 +358,24 @@ def publish(
 
     import httpx
 
-    from claudealytics.analytics.parsers.execution_log_parser import (
-        parse_agent_executions,
-        parse_skill_executions,
-    )
-    from claudealytics.analytics.parsers.stats_cache_parser import parse_stats_cache
-    from claudealytics.analytics.report_generator import export_platform_json
+    from claudealytics.analytics.profile_exporter import build_exported_profile
 
     config_dir = Path.home() / ".cache" / "claudealytics"
     config_file = config_dir / "guilder.json"
 
-    # Collect platform data
-    with console.status("[bold green]Collecting platform data..."):
-        stats_data = parse_stats_cache()
-        agent_execs = parse_agent_executions()
-        skill_execs = parse_skill_executions()
-        data = export_platform_json(stats_data, agent_execs, skill_execs)
+    # Build scored profile (same pipeline as export-profile command)
+    with console.status("[bold green]Building profile..."):
+        profile = build_exported_profile()
+
+    if profile.sessions_analyzed == 0:
+        console.print("[yellow]No sessions found — run the dashboard first to mine conversation data.[/]")
+        raise typer.Exit(1)
+
+    data = json.loads(json.dumps(profile.model_dump(), default=str))
+
+    # Convert date_range from tuple/list to object expected by guilder API
+    if isinstance(data.get("date_range"), (list, tuple)) and len(data["date_range"]) == 2:
+        data["date_range"] = {"start": data["date_range"][0], "end": data["date_range"][1]}
 
     # Read saved claim code if exists
     headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -422,7 +424,7 @@ def publish(
 
     console.print()
     console.print(Panel.fit(
-        f"[bold green]Score: {score:.1f}/100[/bold green]\n\n"
+        f"[bold green]Score: {score:.1f}/10[/bold green]\n\n"
         f"Claim your profile:\n[bold cyan]{claim_url}[/bold cyan]",
         title="Published to guilder.dev",
         border_style="green",
