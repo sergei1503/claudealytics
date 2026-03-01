@@ -12,11 +12,10 @@ from claudealytics.analytics.aggregators.profile_scorer import (
     _raw_to_score,
     _safe_ratio,
     _sub,
-    score_semantic_density,
     score_context_precision,
     score_conversation_balance,
+    score_semantic_density,
 )
-
 
 # ── Helper Tests ──────────────────────────────────────────────────
 
@@ -260,9 +259,9 @@ class TestDistributionSanity:
     def test_minimal_vs_active_session_spread(self):
         """A minimal session and an active session should differ by >2 points."""
         from claudealytics.analytics.aggregators.profile_scorer import (
+            score_session_productivity,
             score_task_decomposition,
             score_tool_orchestration,
-            score_session_productivity,
         )
 
         # Minimal session: 1 human message, almost no tool usage

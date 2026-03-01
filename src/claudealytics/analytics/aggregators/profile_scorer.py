@@ -437,11 +437,10 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
 
     # Research tools: Read, Grep, Glob
     research_count = 0
-    action_count = 0
     if not tc.empty and "tool_name" in tc.columns:
         research_tools = {"Read", "Grep", "Glob"}
         research_count = int(tc["tool_name"].isin(research_tools).sum())
-        action_count = int((~tc["tool_name"].isin(research_tools)).sum())
+        int((~tc["tool_name"].isin(research_tools)).sum())
 
     # Thinking ratio: thinking length relative to output
     thinking_ratio = _safe_ratio(thinking_length, total_output)
@@ -865,7 +864,7 @@ def score_session_productivity(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
     human_count = s.get("human_msg_count", 0) or 1
     total_edits = s.get("total_edits", 0)
     total_writes = s.get("total_writes", 0) if "total_writes" in s else 0
-    max_autonomy = s.get("max_autonomy_run_length", 0)
+    s.get("max_autonomy_run_length", 0)
 
     # Writes per human message
     writes_per_msg = _safe_ratio(total_edits + total_writes, human_count)

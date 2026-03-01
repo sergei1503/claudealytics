@@ -6,15 +6,10 @@ import json
 import types
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from claudealytics.models.schemas import (
     DimensionScore,
-    ExportedDimension,
-    ExportedProfile,
     SubScore,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -211,7 +206,7 @@ class TestPublishPayload:
         mock_post.return_value = mock_response
 
         runner = CliRunner()
-        result = runner.invoke(app, ["publish", "--server", "https://guilder.dev"])
+        runner.invoke(app, ["publish", "--server", "https://guilder.dev"])
 
         # Verify httpx.post was called
         assert mock_post.called
@@ -274,7 +269,7 @@ class TestPublishPayload:
         # Patch Path.home() to use tmp_path
         with patch("claudealytics.cli.Path.home", return_value=tmp_path):
             runner = CliRunner()
-            result = runner.invoke(app, ["publish", "--server", "https://guilder.dev"])
+            runner.invoke(app, ["publish", "--server", "https://guilder.dev"])
 
         # Verify X-Claim-Code header was sent
         assert mock_post.called

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import tomllib
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-
-import tomllib
 
 import streamlit as st
 
