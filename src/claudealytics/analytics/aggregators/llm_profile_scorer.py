@@ -220,29 +220,11 @@ def score_session(
     prompt = _build_prompt(turns)
     model = os.environ.get("CLAUDEALYTICS_LLM_MODEL", DEFAULT_MODEL)
 
-    json_schema = json.dumps({
-        "type": "object",
-        "properties": {
-            "dimensions": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "key": {"type": "string"},
-                        "score": {"type": "number"},
-                        "reasoning": {"type": "string"},
-                        "evidence_quotes": {"type": "array", "items": {"type": "string"}},
-                        "confidence": {"type": "number"},
-                    },
-                    "required": ["key", "score", "reasoning", "evidence_quotes", "confidence"],
-                },
-            }
-        },
-        "required": ["dimensions"],
-    })
-
     # Clean env so claude CLI doesn't think it's nested inside another session
-    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDECODE")}
+    clean_env = {
+        k: v for k, v in os.environ.items()
+        if not k.startswith("CLAUDECODE") and not k.startswith("CLAUDE_CODE")
+    }
 
     start_time = time.monotonic()
     try:
@@ -253,9 +235,8 @@ def score_session(
                 "--output-format", "json",
                 "--model", model,
                 "--no-session-persistence",
-                "--json-schema", json_schema,
+                "--system-prompt", "You are a scoring assistant. Respond with ONLY valid JSON, no markdown fences.",
                 "--max-budget-usd", "0.50",
-                "--tools", "",
             ],
             input=prompt,
             capture_output=True,
@@ -284,6 +265,13 @@ def score_session(
 
     try:
         output = json.loads(result.stdout)
+        # Check for CLI-level errors (budget exceeded, etc.)
+        if output.get("is_error") or output.get("subtype", "").startswith("error"):
+            error_msg = f"claude CLI: {output.get('subtype', 'unknown error')}"
+            return (
+                _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+                error_msg,
+            )
         response = output.get("result", "")
     except (json.JSONDecodeError, AttributeError) as exc:
         error_msg = f"Failed to parse claude CLI output: {exc}"
