@@ -34,9 +34,7 @@ def render():
         date_from = col1.date_input("From", value=daily_df["date"].min(), key="ctx_from")
         date_to = col2.date_input("To", value=daily_df["date"].max(), key="ctx_to")
 
-        date_mask = (daily_df["date"] >= pd.to_datetime(date_from)) & (
-            daily_df["date"] <= pd.to_datetime(date_to)
-        )
+        date_mask = (daily_df["date"] >= pd.to_datetime(date_from)) & (daily_df["date"] <= pd.to_datetime(date_to))
         filtered_daily = daily_df[date_mask]
 
         if not session_df.empty:
@@ -75,7 +73,9 @@ def render():
             xaxis_title="Date",
         )
         st.plotly_chart(fig, use_container_width=True)
-        st.caption("First-message input tokens = system prompt + tools + CLAUDE.md + MCP + skills loaded before any user input.")
+        st.caption(
+            "First-message input tokens = system prompt + tools + CLAUDE.md + MCP + skills loaded before any user input."
+        )
 
     # 2. Context Fill Curves
     if not filtered_sessions.empty:
@@ -86,7 +86,9 @@ def render():
         # Build session options with date and project for readability
         session_options = filtered_sessions.sort_values("date", ascending=False).head(50)
         session_labels = {
-            row["session_id"]: f"{row['date'].strftime('%Y-%m-%d')} | {row['project']} | {row['message_count']} msgs | {row['session_id'][:8]}..."
+            row[
+                "session_id"
+            ]: f"{row['date'].strftime('%Y-%m-%d')} | {row['project']} | {row['message_count']} msgs | {row['session_id'][:8]}..."
             for _, row in session_options.iterrows()
         }
 

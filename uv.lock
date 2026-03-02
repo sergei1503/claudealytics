@@ -171,10 +171,11 @@ wheels = [
 
 [[package]]
 name = "claudealytics"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "pandas" },
     { name = "pydantic" },
     { name = "python-frontmatter" },
     { name = "rich" },
@@ -183,7 +184,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dashboard = [
-    { name = "pandas" },
     { name = "plotly" },
     { name = "streamlit" },
 ]
@@ -198,7 +198,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
-    { name = "pandas", marker = "extra == 'dashboard'", specifier = ">=2.2" },
+    { name = "pandas", specifier = ">=2.2" },
     { name = "plotly", marker = "extra == 'dashboard'", specifier = ">=5.22" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },

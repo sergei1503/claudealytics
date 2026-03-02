@@ -228,8 +228,8 @@ def _classify_edit(old_str: str, new_str: str) -> str:
     # Check if only identifier names changed (rename): same non-word punctuation structure
     # Only apply when similarity is high (same shape) to avoid over-matching
     if similarity > 0.6:
-        old_structure = re.sub(r'\b[a-zA-Z_]\w*\b', 'ID', old_str)
-        new_structure = re.sub(r'\b[a-zA-Z_]\w*\b', 'ID', new_str)
+        old_structure = re.sub(r"\b[a-zA-Z_]\w*\b", "ID", old_str)
+        new_structure = re.sub(r"\b[a-zA-Z_]\w*\b", "ID", new_str)
         if old_structure == new_structure:
             return "rename"
 
