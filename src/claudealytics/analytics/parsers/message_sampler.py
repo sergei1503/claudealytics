@@ -86,13 +86,17 @@ def sample_turns(session_id: str, max_pairs: int = 10, max_chars: int = 1500) ->
                 except json.JSONDecodeError:
                     continue
 
-                role = entry.get("role")
-                if role in ("human", "user"):
-                    text = _extract_text(entry.get("message", entry.get("content", "")))
+                entry_type = entry.get("type", entry.get("role", ""))
+                if entry_type in ("human", "user"):
+                    msg = entry.get("message", {})
+                    content = msg.get("content", "") if isinstance(msg, dict) else msg
+                    text = _extract_text(content)
                     if text.strip():
                         messages.append({"role": "human", "text": text})
-                elif role == "assistant":
-                    text = _extract_text(entry.get("message", entry.get("content", "")))
+                elif entry_type == "assistant":
+                    msg = entry.get("message", {})
+                    content = msg.get("content", "") if isinstance(msg, dict) else msg
+                    text = _extract_text(content)
                     if text.strip():
                         messages.append({"role": "assistant", "text": text})
     except OSError:

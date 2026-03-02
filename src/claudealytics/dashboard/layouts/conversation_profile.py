@@ -20,6 +20,29 @@ from claudealytics.analytics.parsers.content_miner import mine_content
 
 CONTENT_MINE_PATH = Path.home() / ".cache" / "claudealytics" / "content-mine.json"
 
+# Canonical dimension order (matches ALL_SCORERS in profile_scorer.py)
+_CANONICAL_DIM_ORDER = [
+    "context_precision",
+    "semantic_density",
+    "iterative_refinement",
+    "conversation_balance",
+    "task_decomposition",
+    "validation_rigor",
+    "error_resilience",
+    "planning_depth",
+    "code_literacy",
+    "architectural_stewardship",
+    "debugging_collaboration",
+    "token_efficiency",
+    "strategic_delegation",
+    "tool_orchestration",
+    "trust_calibration",
+    "session_productivity",
+]
+
+# Sub-palette for per-dimension evolution charts (high contrast within a category)
+_DIM_SUB_PALETTE = ["#6366f1", "#14b8a6", "#f59e0b", "#ef4444"]
+
 # Abbreviated labels for 16-dim spider (key → short label)
 _ABBREV_LABELS = {
     "context_precision": "Ctx Precision",
@@ -495,24 +518,32 @@ def _render_llm_profile_section(
     active_session_id: str,
 ):
     """Render the LLM-assessed profile section."""
-    from claudealytics.analytics.aggregators.llm_profile_scorer import (
-        get_all_cached_scores,
-        get_cached_score,
-        score_session,
-    )
+    try:
+        from claudealytics.analytics.aggregators.llm_profile_scorer import (
+            get_all_cached_scores,
+            get_cached_score,
+            score_session,
+        )
+    except Exception as e:
+        st.subheader("LLM-Assessed Profile")
+        st.warning(f"LLM scoring unavailable: {e}")
+        return
 
     st.subheader("LLM-Assessed Profile")
     st.caption("Qualitative dimensions scored by Claude — captures nuances heuristics can't measure.")
 
-    if is_single_session and active_session_id:
-        _render_llm_single_session(
-            active_session_id,
-            active_profile,
-            get_cached_score,
-            score_session,
-        )
-    else:
-        _render_llm_all_sessions(filtered_profiles, get_all_cached_scores)
+    try:
+        if is_single_session and active_session_id:
+            _render_llm_single_session(
+                active_session_id,
+                active_profile,
+                get_cached_score,
+                score_session,
+            )
+        else:
+            _render_llm_all_sessions(filtered_profiles, get_all_cached_scores)
+    except Exception as e:
+        st.error(f"Error rendering LLM profile: {e}")
 
 
 def _render_llm_single_session(session_id, profile, get_cached_score_fn, score_session_fn):
@@ -550,20 +581,44 @@ def _batch_score_sessions(unscored_profiles: list, max_batch: int = 50):
     errors: list[str] = []
     successes = 0
 
+    consecutive_failures = 0
+    last_error = ""
+
     for i, p in enumerate(batch):
         _profile, error = score_session(
             session_id=p.session_id,
             project=p.project,
             date=p.date,
+            total_messages=0,
         )
         if error:
             errors.append(f"{p.session_id[:12]}: {error}")
+            # Track consecutive non-"No turns" failures to detect systemic issues
+            if "No turns to sample" not in error:
+                consecutive_failures += 1
+                last_error = error
+            else:
+                consecutive_failures = 0
         else:
             successes += 1
+            consecutive_failures = 0
         progress.progress(
             (i + 1) / len(batch),
             text=f"Scoring {i + 1}/{len(batch)} — {successes} ok, {len(errors)} failed",
         )
+        if (i + 1) % 10 == 0:
+            st.toast(f"Scored {i + 1}/{len(batch)} sessions...")
+
+        # Stop early if 3+ consecutive non-trivial failures (likely a config issue)
+        if consecutive_failures >= 3:
+            progress.empty()
+            st.error(
+                f"**Stopped early after {consecutive_failures} consecutive failures.**\n\n"
+                f"Root cause: `{last_error}`\n\n"
+                "Ensure the `claude` CLI is installed and authenticated. "
+                "Run `claude --version` in your terminal to verify."
+            )
+            return
 
     progress.empty()
 
@@ -599,8 +654,13 @@ def _render_llm_all_sessions(filtered_profiles, get_all_cached_fn):
         remaining = len(unscored)
         label = f"Score First {batch_size}" if not scored else f"Score Next {batch_size} ({remaining} remaining)"
         if st.button(label, key="llm_batch_score_btn", type="primary"):
-            _batch_score_sessions(unscored, max_batch=50)
-            st.rerun()
+            try:
+                with st.spinner("Scoring sessions via Claude CLI..."):
+                    _batch_score_sessions(unscored, max_batch=50)
+            except Exception as e:
+                st.error(f"Batch scoring failed: {e}")
+            else:
+                st.rerun()
 
     if not scored:
         return
@@ -817,13 +877,16 @@ def _render_timeline(profiles: list):
 
         for cat in CATEGORY_ORDER:
             icon = CATEGORY_ICONS.get(cat, "")
-            color = CATEGORY_COLORS.get(cat, "#666")
             cat_dims = dim_df[dim_df["category"] == cat]
             if cat_dims.empty:
                 continue
 
             with st.expander(f"{icon} {cat.capitalize()} Dimensions", expanded=False):
+                dim_fig = go.Figure()
+                all_dim_scores: list[float] = []
                 dim_keys = cat_dims["key"].unique()
+                color_idx = 0
+
                 for dim_key in sorted(dim_keys):
                     sub = cat_dims[cat_dims["key"] == dim_key].copy()
                     dim_name = sub["name"].iloc[0]
@@ -832,30 +895,35 @@ def _render_timeline(profiles: list):
                     if sub.empty:
                         continue
 
-                    dim_scores = sub["score"].tolist()
-                    d_ymin = max(1, min(dim_scores) - 0.5)
-                    d_ymax = min(10, max(dim_scores) + 0.5)
+                    all_dim_scores.extend(sub["score"].tolist())
+                    line_color = _DIM_SUB_PALETTE[color_idx % len(_DIM_SUB_PALETTE)]
+                    color_idx += 1
 
-                    dim_fig = go.Figure()
                     dim_fig.add_trace(
                         go.Scatter(
                             x=sub["date"],
                             y=sub["score"],
                             mode="lines+markers",
-                            line=dict(color=color, width=2),
+                            line=dict(color=line_color, width=2),
                             marker=dict(size=4),
                             name=dim_name,
                         )
                     )
-                    dim_fig.update_layout(
-                        height=250,
-                        margin=dict(l=20, r=20, t=30, b=0),
-                        yaxis=dict(title="Score", range=[d_ymin, d_ymax]),
-                        xaxis_title="Week",
-                        title=dict(text=dim_name, font=dict(size=13)),
-                        showlegend=False,
-                    )
-                    st.plotly_chart(dim_fig, use_container_width=True)
+
+                if not all_dim_scores:
+                    continue
+
+                d_ymin = max(1, min(all_dim_scores) - 0.5)
+                d_ymax = min(10, max(all_dim_scores) + 0.5)
+
+                dim_fig.update_layout(
+                    height=350,
+                    margin=dict(l=20, r=20, t=30, b=0),
+                    yaxis=dict(title="Score", range=[d_ymin, d_ymax]),
+                    xaxis_title="Week",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                )
+                st.plotly_chart(dim_fig, use_container_width=True)
 
     # ── Animated radar progression ───────────────────────────────
     _render_animated_radar(profiles)
@@ -894,15 +962,14 @@ def _render_animated_radar(profiles: list):
         st.info("Need at least 2 weeks of data for score progression animation.")
         return
 
-    # Order dimensions by category (same as full radar)
-    ordered_keys = []
-    ordered_names = []
-    for cat in CATEGORY_ORDER:
-        cat_dims = df[df["category"] == cat][["key", "name"]].drop_duplicates()
-        for _, row in cat_dims.sort_values("key").iterrows():
-            if row["key"] not in ordered_keys:
-                ordered_keys.append(row["key"])
-                ordered_names.append(_ABBREV_LABELS.get(row["key"], row["name"]))
+    # Order dimensions by canonical order (matches full 16-dim spider)
+    key_to_name = {}
+    for _, row in df[["key", "name"]].drop_duplicates().iterrows():
+        key_to_name[row["key"]] = row["name"]
+
+    available_keys = set(key_to_name.keys())
+    ordered_keys = [k for k in _CANONICAL_DIM_ORDER if k in available_keys]
+    ordered_names = [_ABBREV_LABELS.get(k, key_to_name[k]) for k in ordered_keys]
 
     if not ordered_keys:
         return

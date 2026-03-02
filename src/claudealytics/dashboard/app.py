@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import tomllib
-from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import streamlit as st
@@ -43,18 +41,11 @@ def main():
     st.title("🔍 Claude Code Insights Dashboard")
 
     # Global refresh button + version in the header area
-    try:
-        _version = pkg_version("claudealytics")
-    except Exception:
-        try:
-            with open(Path(__file__).parents[3] / "pyproject.toml", "rb") as f:
-                _version = tomllib.load(f)["project"]["version"]
-        except Exception:
-            _version = "dev"
+    from claudealytics._version import get_display_version
 
     col_spacer, col_version, col_refresh = st.columns([4, 1, 1])
     with col_version:
-        st.caption(f"v{_version}")
+        st.caption(get_display_version())
     with col_refresh:
         if st.button("🔄 Refresh Data", use_container_width=True):
             _clear_data_caches()

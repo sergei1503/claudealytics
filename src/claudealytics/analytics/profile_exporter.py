@@ -7,7 +7,6 @@ or conversation content — only aggregated scores.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from importlib.metadata import version as pkg_version
 
 from claudealytics.analytics.aggregators.llm_profile_scorer import get_all_cached_scores
 from claudealytics.analytics.aggregators.profile_scorer import (
@@ -118,8 +117,7 @@ def build_exported_profile() -> ExportedProfile:
 
 
 def _get_version() -> str:
-    """Get the installed claudealytics version, or 'dev'."""
-    try:
-        return pkg_version("claudealytics")
-    except Exception:
-        return "dev"
+    """Get the display version string."""
+    from claudealytics._version import get_display_version
+
+    return get_display_version()

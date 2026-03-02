@@ -1,27 +1,31 @@
 """LLM-based conversation profile scorer.
 
 Scores 6 qualitative dimensions that heuristics can't capture by sending
-sampled conversation turns to Claude via the CLI. Results are permanently
+sampled conversation turns to Claude via the `claude` CLI. Results are permanently
 cached per session_id since conversations are immutable.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from claudealytics.analytics.parsers.message_sampler import sample_turns
 from claudealytics.models.schemas import LLMDimensionScore, LLMProfile
 
+logger = logging.getLogger(__name__)
+
 # ── Constants ──────────────────────────────────────────────────
 
 CACHE_DIR = Path.home() / ".cache" / "claudealytics"
 CACHE_PATH = CACHE_DIR / "llm-profile-scores.json"
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "sonnet"
 
 LLM_DIMENSIONS = [
     {
@@ -192,7 +196,7 @@ def score_session(
     date: str = "",
     total_messages: int = 0,
 ) -> tuple[LLMProfile, str | None]:
-    """Score a single session using Claude CLI.
+    """Score a single session using the claude CLI.
 
     Returns (LLMProfile, error_message). error_message is None on success.
     Never re-scores if cached. Call get_cached_score() first to check.
@@ -212,53 +216,90 @@ def score_session(
             scored_at=datetime.now(UTC).isoformat(),
         ), "No turns to sample"
 
-    # Build prompt and call Claude CLI
+    # Build prompt and call claude CLI
     prompt = _build_prompt(turns)
-    model = os.environ.get("CLAUDE_INSIGHTS_LLM_PROFILE_MODEL", DEFAULT_MODEL)
+    model = os.environ.get("CLAUDEALYTICS_LLM_MODEL", DEFAULT_MODEL)
 
+    json_schema = json.dumps({
+        "type": "object",
+        "properties": {
+            "dimensions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "score": {"type": "number"},
+                        "reasoning": {"type": "string"},
+                        "evidence_quotes": {"type": "array", "items": {"type": "string"}},
+                        "confidence": {"type": "number"},
+                    },
+                    "required": ["key", "score", "reasoning", "evidence_quotes", "confidence"],
+                },
+            }
+        },
+        "required": ["dimensions"],
+    })
+
+    # Clean env so claude CLI doesn't think it's nested inside another session
+    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDECODE")}
+
+    start_time = time.monotonic()
     try:
-        clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
-        cmd = ["claude", "--print", "--allowedTools", "", "--model", model]
-
         result = subprocess.run(
-            cmd,
+            [
+                "claude", "-p",
+                "--dangerously-skip-permissions",
+                "--output-format", "json",
+                "--model", model,
+                "--no-session-persistence",
+                "--json-schema", json_schema,
+                "--max-budget-usd", "0.50",
+                "--tools", "",
+            ],
             input=prompt,
             capture_output=True,
             text=True,
             timeout=120,
             env=clean_env,
         )
-
-        if result.returncode != 0:
-            stderr_snippet = (result.stderr or "").strip()[:200]
-            error_msg = f"CLI exited with code {result.returncode}"
-            if stderr_snippet:
-                error_msg += f": {stderr_snippet}"
-            return (
-                _fallback_profile(session_id, project, date, len(turns), total_messages, model),
-                error_msg,
-            )
-
-        response = result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return (
-            _fallback_profile(session_id, project, date, len(turns), total_messages, model),
-            "CLI timed out after 120s",
-        )
     except FileNotFoundError:
         return (
             _fallback_profile(session_id, project, date, len(turns), total_messages, model),
-            "'claude' CLI not found on PATH",
+            "claude CLI not found — ensure it is installed and on PATH",
         )
-    except OSError as exc:
+    except subprocess.TimeoutExpired:
         return (
             _fallback_profile(session_id, project, date, len(turns), total_messages, model),
-            f"OS error: {exc}",
+            "claude CLI timed out after 120s",
         )
+
+    if result.returncode != 0:
+        error_msg = f"claude CLI error (exit {result.returncode}): {result.stderr[:200]}"
+        logger.error("claude CLI error for session %s: %s", session_id[:12], error_msg)
+        return (
+            _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+            error_msg,
+        )
+
+    try:
+        output = json.loads(result.stdout)
+        response = output.get("result", "")
+    except (json.JSONDecodeError, AttributeError) as exc:
+        error_msg = f"Failed to parse claude CLI output: {exc}"
+        logger.error("JSON parse error for session %s: %s", session_id[:12], error_msg)
+        return (
+            _fallback_profile(session_id, project, date, len(turns), total_messages, model),
+            error_msg,
+        )
+
+    elapsed = time.monotonic() - start_time
+    logger.info("Scored session %s with %s in %.1fs", session_id[:12], model, elapsed)
 
     # Parse JSON response (handle markdown fences)
     parsed = _parse_llm_response(response)
     if not parsed:
+        logger.warning("Failed to parse LLM JSON for session %s: %s", session_id[:12], response[:200])
         return (
             _fallback_profile(session_id, project, date, len(turns), total_messages, model),
             f"Failed to parse LLM JSON response (first 200 chars): {response[:200]}",
