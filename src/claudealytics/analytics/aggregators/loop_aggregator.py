@@ -104,10 +104,7 @@ def compute_error_recovery(tool_calls: pd.DataFrame, error_results: pd.DataFrame
     if not recovery_counts:
         return pd.DataFrame(columns=["failed_tool", "recovery_action", "count"])
 
-    rows = [
-        {"failed_tool": k[0], "recovery_action": k[1], "count": v}
-        for k, v in recovery_counts.most_common()
-    ]
+    rows = [{"failed_tool": k[0], "recovery_action": k[1], "count": v} for k, v in recovery_counts.most_common()]
     return pd.DataFrame(rows, columns=["failed_tool", "recovery_action", "count"])
 
 

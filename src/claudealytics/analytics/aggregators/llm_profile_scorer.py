@@ -222,21 +222,25 @@ def score_session(
 
     # Clean env so claude CLI doesn't think it's nested inside another session
     clean_env = {
-        k: v for k, v in os.environ.items()
-        if not k.startswith("CLAUDECODE") and not k.startswith("CLAUDE_CODE")
+        k: v for k, v in os.environ.items() if not k.startswith("CLAUDECODE") and not k.startswith("CLAUDE_CODE")
     }
 
     start_time = time.monotonic()
     try:
         result = subprocess.run(
             [
-                "claude", "-p",
+                "claude",
+                "-p",
                 "--dangerously-skip-permissions",
-                "--output-format", "json",
-                "--model", model,
+                "--output-format",
+                "json",
+                "--model",
+                model,
                 "--no-session-persistence",
-                "--system-prompt", "You are a scoring assistant. Respond with ONLY valid JSON, no markdown fences.",
-                "--max-budget-usd", "0.50",
+                "--system-prompt",
+                "You are a scoring assistant. Respond with ONLY valid JSON, no markdown fences.",
+                "--max-budget-usd",
+                "0.50",
             ],
             input=prompt,
             capture_output=True,

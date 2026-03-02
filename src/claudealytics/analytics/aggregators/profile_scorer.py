@@ -478,7 +478,13 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
     subs = [
         _sub("Thinking ratio", thinking_ratio, thinking_score, 0.40, "Thinking length vs output length"),
         _sub("Research-before-action", research_ratio, research_score, 0.40, "Read/Grep/Glob/Web ratio of all tools"),
-        _sub("Thinking-to-action ratio", thinking_to_action, thinking_action_score, 0.20, "Research calls before first action"),
+        _sub(
+            "Thinking-to-action ratio",
+            thinking_to_action,
+            thinking_action_score,
+            0.20,
+            "Research calls before first action",
+        ),
     ]
 
     raw = _raw_to_score(sum(sub.contribution for sub in subs))
