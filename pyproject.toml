@@ -1,6 +1,6 @@
 [project]
 name = "claudealytics"
-version = "0.2.1"
+version = "0.3.0"
 description = "Analytics dashboard for Claude Code power users — mine your conversation history to understand usage patterns, track costs, and optimize your setup."
 requires-python = ">=3.11"
 license = "MIT"
