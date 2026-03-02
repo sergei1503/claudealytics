@@ -425,6 +425,184 @@ class CacheSessionMiner:
             self.cache_path.unlink()
 
 
+class ContextMiner:
+    """Mines per-session context overhead metrics from conversation JSONL files.
+
+    Tracks baseline overhead (first-message input tokens), context fill progression,
+    compaction events (significant drops in cumulative input tokens), and agent spawns.
+    """
+
+    CACHE_TTL_SECONDS = 3600  # 1 hour
+    COMPACTION_DROP_THRESHOLD = 0.30  # 30% drop = compaction event
+
+    def __init__(self, cache_dir: Path | None = None):
+        self.projects_dir = Path.home() / ".claude" / "projects"
+        self.cache_dir = cache_dir or Path.home() / ".cache" / "claudealytics"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_path = self.cache_dir / "context-overhead-mine.json"
+
+    def _get_all_jsonl_files(self) -> list[Path]:
+        """Get ALL JSONL files recursively."""
+        if not self.projects_dir.exists():
+            return []
+        files = []
+        for project_dir in self.projects_dir.iterdir():
+            if project_dir.is_dir():
+                files.extend(project_dir.rglob("*.jsonl"))
+        return sorted(files, key=lambda f: f.stat().st_mtime)
+
+    def _load_cache(self) -> dict | None:
+        if not self.cache_path.exists():
+            return None
+        try:
+            with open(self.cache_path) as f:
+                cached = json.load(f)
+            if cached.get("timestamp", 0) > datetime.now().timestamp() - self.CACHE_TTL_SECONDS:
+                return cached.get("data")
+        except (json.JSONDecodeError, KeyError):
+            pass
+        return None
+
+    def _save_cache(self, data: dict):
+        cache_data = {"timestamp": datetime.now().timestamp(), "data": data}
+        with open(self.cache_path, "w") as f:
+            json.dump(cache_data, f)
+
+    def mine_context_overhead(self, use_cache: bool = True) -> pd.DataFrame:
+        """Mine per-session context overhead metrics from all JSONL files.
+
+        Returns DataFrame with columns: session_id, date, project,
+        baseline_overhead_tokens, peak_context_tokens, compaction_count,
+        agent_spawn_count, message_count, context_fill_series
+        """
+        empty_cols = [
+            "session_id",
+            "date",
+            "project",
+            "baseline_overhead_tokens",
+            "peak_context_tokens",
+            "compaction_count",
+            "agent_spawn_count",
+            "message_count",
+            "context_fill_series",
+        ]
+
+        if use_cache:
+            cached = self._load_cache()
+            if cached:
+                rows = cached.get("rows", [])
+                if rows:
+                    df = pd.DataFrame(rows)
+                    df["date"] = pd.to_datetime(df["date"])
+                    return df.sort_values("date")
+                return pd.DataFrame(columns=empty_cols)
+
+        # Per-session tracking: ordered messages with input tokens + agent spawns
+        sessions: dict[str, dict] = defaultdict(
+            lambda: {
+                "date": None,
+                "project": None,
+                "input_token_series": [],  # Per-message total input tokens
+                "agent_spawn_count": 0,
+            }
+        )
+
+        for file_path in self._get_all_jsonl_files():
+            project_name = CacheSessionMiner._extract_project_name(file_path)
+            try:
+                with open(file_path) as f:
+                    for line in f:
+                        try:
+                            data = json.loads(line)
+                            session_id = data.get("sessionId")
+                            if not session_id:
+                                continue
+
+                            msg = data.get("message", {})
+                            if not isinstance(msg, dict):
+                                continue
+
+                            timestamp_str = data.get("timestamp", "")
+
+                            s = sessions[session_id]
+                            if s["date"] is None and timestamp_str:
+                                s["date"] = timestamp_str[:10]
+                            if s["project"] is None:
+                                s["project"] = project_name
+
+                            # Check for agent spawns (Task tool calls)
+                            content = msg.get("content", [])
+                            if isinstance(content, list):
+                                for block in content:
+                                    if (
+                                        isinstance(block, dict)
+                                        and block.get("type") == "tool_use"
+                                        and block.get("name") == "Task"
+                                    ):
+                                        s["agent_spawn_count"] += 1
+
+                            # Track input tokens per message
+                            usage = msg.get("usage")
+                            if usage:
+                                model = msg.get("model", "")
+                                if model == "<synthetic>":
+                                    continue
+                                input_t = usage.get("input_tokens", 0) or 0
+                                cache_read_t = usage.get("cache_read_input_tokens", 0) or 0
+                                cache_create_t = usage.get("cache_creation_input_tokens", 0) or 0
+                                total_input = input_t + cache_read_t + cache_create_t
+                                if total_input > 0:
+                                    s["input_token_series"].append(total_input)
+
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+            except OSError:
+                continue
+
+        rows = []
+        for session_id, s in sessions.items():
+            series = s["input_token_series"]
+            if not series:
+                continue
+
+            baseline = series[0]
+            peak = max(series)
+
+            # Detect compaction events: >30% drop from previous message
+            compaction_count = 0
+            for i in range(1, len(series)):
+                if series[i - 1] > 0 and (series[i - 1] - series[i]) / series[i - 1] > self.COMPACTION_DROP_THRESHOLD:
+                    compaction_count += 1
+
+            rows.append(
+                {
+                    "session_id": session_id,
+                    "date": s["date"],
+                    "project": s["project"],
+                    "baseline_overhead_tokens": baseline,
+                    "peak_context_tokens": peak,
+                    "compaction_count": compaction_count,
+                    "agent_spawn_count": s["agent_spawn_count"],
+                    "message_count": len(series),
+                    "context_fill_series": series,
+                }
+            )
+
+        if use_cache:
+            self._save_cache({"rows": rows})
+
+        if not rows:
+            return pd.DataFrame(columns=empty_cols)
+
+        df = pd.DataFrame(rows)
+        df["date"] = pd.to_datetime(df["date"])
+        return df.sort_values("date")
+
+    def clear_cache(self):
+        if self.cache_path.exists():
+            self.cache_path.unlink()
+
+
 # Convenience functions
 def mine_daily_tokens(use_cache: bool = True) -> pd.DataFrame:
     """Mine daily token usage by model from all conversation JSONL files."""
@@ -436,3 +614,9 @@ def mine_session_cache(use_cache: bool = True) -> pd.DataFrame:
     """Mine per-session cache statistics from all conversation JSONL files."""
     miner = CacheSessionMiner()
     return miner.mine_session_cache(use_cache=use_cache)
+
+
+def mine_context_overhead(use_cache: bool = True) -> pd.DataFrame:
+    """Mine per-session context overhead metrics from all conversation JSONL files."""
+    miner = ContextMiner()
+    return miner.mine_context_overhead(use_cache=use_cache)

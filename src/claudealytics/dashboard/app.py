@@ -12,6 +12,7 @@ from claudealytics.dashboard.layouts import (
     agents_skills,
     cache_analysis,
     config_health,
+    context_overhead,
     conversation_analysis,
     conversation_profile,
     costs,
@@ -74,6 +75,7 @@ def main():
         tab_report,
         tab_tokens,
         tab_cache,
+        tab_ctx_overhead,
         tab_sessions,
         tab_convo,
         tab_profile,
@@ -87,6 +89,7 @@ def main():
             "📋 Report",
             "🪙 Token Usage",
             "💾 Cache Analysis",
+            "📐 Context Overhead",
             "⏱️ Sessions",
             "🔍 Conversation Analysis",
             "🎯 Conversation Profile",
@@ -108,6 +111,9 @@ def main():
 
     with tab_cache:
         _safe_render("Cache Analysis", cache_analysis.render, stats)
+
+    with tab_ctx_overhead:
+        _safe_render("Context Overhead", context_overhead.render)
 
     with tab_sessions:
         _safe_render("Sessions", sessions.render, stats)
@@ -159,6 +165,7 @@ def _clear_data_caches():
         "tool-stats.json",
         "token-mine.json",
         "cache-session-mine.json",
+        "context-overhead-mine.json",
         "content-mine.json",
         "profile-scores.json",
         "full-report.json",
