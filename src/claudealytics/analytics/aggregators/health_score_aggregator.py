@@ -15,7 +15,7 @@ def _score_cache_efficiency(data: dict) -> HealthSubScore:
     if hit_rate is None:
         return HealthSubScore(name="cache_efficiency", label="Cache Efficiency", weight=0.20)
 
-    score = _clamp((hit_rate / 80) * 100)
+    score = _clamp((hit_rate / 90) * 100)
     return HealthSubScore(
         name="cache_efficiency",
         label="Cache Efficiency",
@@ -33,10 +33,7 @@ def _score_error_rate(data: dict) -> HealthSubScore:
         return HealthSubScore(name="error_rate", label="Error Rate", weight=0.15)
 
     error_pct = (total_errors / total_tool_calls) * 100
-    if error_pct <= 5:
-        score = 100 - (error_pct / 5) * 25
-    else:
-        score = 75 - ((error_pct - 5) / 15) * 75
+    score = max(0, 100 - error_pct * 5)
     return HealthSubScore(
         name="error_rate",
         label="Error Rate",
@@ -102,11 +99,11 @@ def _score_token_efficiency(data: dict) -> HealthSubScore:
 def _score_model_balance(data: dict) -> HealthSubScore:
     by_model = data.get("tokens", {}).get("by_model", {})
     if not by_model:
-        return HealthSubScore(name="model_balance", label="Model Balance", weight=0.10)
+        return HealthSubScore(name="model_balance", label="Model Balance", weight=0.05)
 
     total_tokens = sum(by_model.values())
     if total_tokens == 0:
-        return HealthSubScore(name="model_balance", label="Model Balance", weight=0.10)
+        return HealthSubScore(name="model_balance", label="Model Balance", weight=0.05)
 
     opus_tokens = sonnet_tokens = haiku_tokens = 0
     for model, t in by_model.items():
@@ -124,7 +121,7 @@ def _score_model_balance(data: dict) -> HealthSubScore:
 
     models_used = sum(1 for p in [opus_pct, sonnet_pct, haiku_pct] if p > 0.01)
     if models_used == 1:
-        score = 55
+        score = 70
     elif models_used == 2:
         score = 75
     else:
@@ -138,7 +135,7 @@ def _score_model_balance(data: dict) -> HealthSubScore:
         name="model_balance",
         label="Model Balance",
         score=_clamp(score),
-        weight=0.10,
+        weight=0.05,
         explanation=f"{models_used} model{'s' if models_used != 1 else ''}, {premium_pct:.0f}% premium",
     )
 
@@ -179,30 +176,26 @@ def _score_config_health(data: dict) -> HealthSubScore:
 
 
 def _score_autonomy(data: dict) -> HealthSubScore:
-    content = data.get("content", {})
-    ratio = content.get("recent_autonomy_ratio")
-    if ratio is None:
-        # Fall back to all-time avg_autonomy_run_length
-        avg_run = content.get("avg_autonomy_run_length")
-        if avg_run is None:
-            return HealthSubScore(name="autonomy", label="Autonomy & Efficiency", weight=0.10)
-        score = _clamp((avg_run / 6) * 100)
-        return HealthSubScore(
-            name="autonomy",
-            label="Autonomy & Efficiency",
-            score=score,
-            weight=0.10,
-            explanation=f"{avg_run:.1f} msgs between interventions",
-        )
+    """Score autonomy based on avg run length between interventions.
 
-    # ratio is 0-1 (assistant_msgs / total_msgs), score as percentage
-    score = _clamp(ratio * 100)
+    Both paths now use avg_autonomy_run_length for consistency.
+    Score is normalized with a linear scale: 10+ msgs = 100, 0 = 0.
+    """
+    content = data.get("content", {})
+
+    # Prefer 7-day recent data; fall back to all-time
+    avg_run = content.get("recent_avg_autonomy_run_length") or content.get("avg_autonomy_run_length")
+    if avg_run is None:
+        return HealthSubScore(name="autonomy", label="Autonomy & Efficiency", weight=0.10)
+
+    # Linear scale: 0 msgs = 0, 10+ msgs = 100
+    score = _clamp((avg_run / 10) * 100)
     return HealthSubScore(
         name="autonomy",
         label="Autonomy & Efficiency",
         score=score,
         weight=0.10,
-        explanation=f"{ratio:.0%} autonomy ratio (7-day avg)",
+        explanation=f"{avg_run:.1f} msgs between interventions",
     )
 
 
@@ -214,8 +207,13 @@ def _score_agent_utilization(data: dict) -> HealthSubScore:
     unused_agents = opt.get("unused_agents", 0)
     unused_skills = opt.get("unused_skills", 0)
 
-    total_defined = total_defined_agents + total_defined_skills
-    if total_defined == 0:
+    # Subtract dismissed agents/skills from denominator — they were intentionally removed
+    dismissed_agents = opt.get("dismissed_agents", 0)
+    dismissed_skills = opt.get("dismissed_skills", 0)
+    dismissed_count = dismissed_agents + dismissed_skills
+
+    total_defined = total_defined_agents + total_defined_skills - dismissed_count
+    if total_defined <= 0:
         return HealthSubScore(name="agent_utilization", label="Agent & Skill Utilization", weight=0.10)
 
     unused_count = unused_agents + unused_skills

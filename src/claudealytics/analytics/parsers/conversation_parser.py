@@ -48,8 +48,9 @@ def get_session_info(filepath: Path) -> SessionInfo | None:
                         first_ts = ts
                     last_ts = ts
 
-                # Count user/assistant messages
-                if data.get("type") in ("human", "assistant"):
+                # Count user/assistant messages ("user" is the current JSONL format;
+                # "human" was the old format — ContentMiner uses "user" consistently)
+                if data.get("type") in ("user", "assistant"):
                     message_count += 1
 
         if not first_ts or not last_ts:
