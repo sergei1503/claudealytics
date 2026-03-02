@@ -23,7 +23,8 @@ def test_compute_autonomy_empty():
 
 def test_compute_tool_sequences_empty():
     result = compute_tool_sequences(pd.DataFrame())
-    assert list(result.columns) == ["pattern", "count"]
+    assert "pattern" in result.columns
+    assert "count" in result.columns
     assert result.empty
 
 

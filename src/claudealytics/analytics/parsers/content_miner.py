@@ -9,7 +9,9 @@ memory and cache size manageable (~40MB for 2GB of JSONL).
 Uses file-level caching with 1-hour TTL, same pattern as TokenMiner.
 """
 
+import difflib
 import json
+import logging
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -17,11 +19,15 @@ from pathlib import Path
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 # ── Regex patterns (compiled once) ──────────────────────────────
 
 _CORRECTION_RE = re.compile(
     r"(?:"
-    r"\bno,\s"  # "no, " — explicit negation with comma
+    # "no, " — explicit negation, but NOT when followed by approval words
+    # (prevents "No, that looks good" from being classified as correction)
+    r"\bno,\s(?!.*\b(?:looks?\s+good|that'?s?\s+(?:fine|good|great|perfect|right)|go\s+ahead|proceed)\b)"
     r"|\bwrong\b(?!\s+with)"  # "wrong" but not "wrong with" (diagnostic)
     r"|\bthat'?s\s+not\b"  # "that's not"
     r"|\bnot\s+what\s+I\b"  # "not what I"
@@ -53,20 +59,38 @@ _APPROVAL_RE = re.compile(
     r")",
     re.IGNORECASE | re.MULTILINE,
 )
-_FILE_PATH_RE = re.compile(r"(?:/[\w.-]+){2,}")
+# Require leading /, ./, ~/, or common directory prefixes to reduce false positives
+_FILE_PATH_RE = re.compile(
+    r"(?:"
+    r"(?:^|[\s'\"`(])(?:~/|\.{1,2}/|(?:/(?:Users|home|var|etc|usr|opt|tmp|src|repos|projects)/))"
+    r"[\w./-]+"
+    r"|(?:^|[\s'\"`(])/(?:[\w.-]+/){1,}[\w.-]+"
+    r")"
+)
 _CODE_BLOCK_RE = re.compile(r"```")
 _DECISION_RE = re.compile(
-    r"\b(chose|decided|opting|went with|choosing)\b.*\b(because|since|due to)\b",
+    r"\b(chose|decided|opting|went with|choosing|using|going with|selected)\b.*\b(because|since|due to)\b",
     re.IGNORECASE,
 )
+# Tightened to require correction context: "actually" and "wait" alone match too
+# broadly (normal explanatory text). Require correction-specific follow-up words.
 _SELF_CORRECTION_RE = re.compile(
-    r"\b(actually|wait|let me reconsider|on second thought|I was wrong)\b",
-    re.IGNORECASE,
+    r"(?:"
+    r"\bactually,?\s+(?:I|that|this|it)\s+(?:should|was|is\s+wrong|need|made)\b"
+    r"|(?:^|\.\s+)wait,?\s+"  # sentence-initial "wait," — less likely in normal text
+    r"|\blet me reconsider\b"
+    r"|\bon second thought\b"
+    r"|\bI was wrong\b"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
 )
 # Strip fenced code blocks before checking for questions/inline code
 _FENCED_CODE_RE = re.compile(r"```[\s\S]*?```")
 _INLINE_CODE_RE = re.compile(r"`[^`]+`")
-_REASONING_MARKER_RE = re.compile(r"^(Note:|Approach:|Decision:)", re.MULTILINE)
+_REASONING_MARKER_RE = re.compile(
+    r"^(Note:|Approach:|Decision:|Trade-off:|Rationale:|Reasoning:)",
+    re.MULTILINE,
+)
 _BASH_CMD_CATEGORY = {
     "git": "git",
     "npm": "npm",
@@ -100,6 +124,16 @@ _BASH_CMD_CATEGORY = {
     "kill": "process",
     "lsof": "process",
 }
+
+# ── Edit classification patterns (compiled at module level) ───
+_ERROR_KW_RE = re.compile(r"\b(try|catch|except|finally|raise|throw|Error|Exception)\b")
+_TYPE_KW_RE = re.compile(r"(?::\s*\w+[\[\]|,\s]*(?:=|$)|\bOptional\b|\bUnion\b|\bList\b|\bDict\b|->)")
+
+# Git revert/undo detection in bash commands
+_GIT_REVERT_RE = re.compile(
+    r"\bgit\s+(?:checkout\s+--|reset\b|revert\b|restore\b)",
+    re.IGNORECASE,
+)
 
 # ── Install / test / edit classification patterns ─────────────
 
@@ -152,7 +186,11 @@ def _is_test_command(cmd: str, description: str) -> bool:
 
 
 def _classify_edit(old_str: str, new_str: str) -> str:
-    """Classify an edit operation by its semantic category."""
+    """Classify an edit operation by its semantic category.
+
+    Uses difflib.SequenceMatcher to distinguish minor tweaks from structural
+    changes. Module-level compiled regexes are used for all keyword checks.
+    """
     if not old_str and new_str:
         if _IMPORT_LINE_RE.search(new_str):
             return "import_add"
@@ -166,19 +204,42 @@ def _classify_edit(old_str: str, new_str: str) -> str:
     if new_imports > old_imports:
         return "import_add"
 
-    # Check for error handling additions
-    error_kw = re.compile(r"\b(try|catch|except|finally|raise|throw|Error|Exception)\b")
-    old_err = len(error_kw.findall(old_str))
-    new_err = len(error_kw.findall(new_str))
+    # Check for error handling additions (uses module-level compiled regex)
+    old_err = len(_ERROR_KW_RE.findall(old_str))
+    new_err = len(_ERROR_KW_RE.findall(new_str))
     if new_err > old_err:
         return "error_handling"
 
-    # Check for type annotation additions
-    type_kw = re.compile(r"(?::\s*\w+[\[\]|,\s]*(?:=|$)|\bOptional\b|\bUnion\b|\bList\b|\bDict\b|->)")
-    old_types = len(type_kw.findall(old_str))
-    new_types = len(type_kw.findall(new_str))
+    # Check for type annotation additions (uses module-level compiled regex)
+    old_types = len(_TYPE_KW_RE.findall(old_str))
+    new_types = len(_TYPE_KW_RE.findall(new_str))
     if new_types > old_types:
         return "type_annotation"
+
+    # Use SequenceMatcher to distinguish minor tweaks from structural changes
+    similarity = difflib.SequenceMatcher(None, old_str, new_str).ratio()
+
+    # Check if only string literals changed (string swap)
+    old_no_strings = re.sub(r'["\'].*?["\']', '""', old_str)
+    new_no_strings = re.sub(r'["\'].*?["\']', '""', new_str)
+    if old_no_strings == new_no_strings and old_str != new_str:
+        return "string_change"
+
+    # Check if only identifier names changed (rename): same non-word punctuation structure
+    # Only apply when similarity is high (same shape) to avoid over-matching
+    if similarity > 0.6:
+        old_structure = re.sub(r'\b[a-zA-Z_]\w*\b', 'ID', old_str)
+        new_structure = re.sub(r'\b[a-zA-Z_]\w*\b', 'ID', new_str)
+        if old_structure == new_structure:
+            return "rename"
+
+    # High similarity: minor config-level change (e.g. number/constant swap)
+    if similarity > 0.85:
+        return "config_change"
+
+    # Low similarity: structural/logic change
+    if similarity < 0.5:
+        return "logic_change"
 
     return "refactor"
 
@@ -195,14 +256,25 @@ class ContentMiner:
         self.cache_path = self.cache_dir / "content-mine.json"
 
     def _get_all_jsonl_files(self) -> list[Path]:
-        """Get ALL JSONL files recursively, including agent-*.jsonl."""
+        """Get all main JSONL files recursively, skipping agent-*.jsonl.
+
+        Agent subconversation files are excluded to match ConversationParser
+        behavior and avoid double-counting tool calls from agent sidechains.
+        """
         if not self.projects_dir.exists():
             return []
-        files = []
+        all_files = []
+        dropped = 0
         for project_dir in self.projects_dir.iterdir():
             if project_dir.is_dir():
-                files.extend(project_dir.rglob("*.jsonl"))
-        return sorted(files, key=lambda f: f.stat().st_mtime)
+                for f in project_dir.rglob("*.jsonl"):
+                    if f.name.startswith("agent-"):
+                        dropped += 1
+                    else:
+                        all_files.append(f)
+        if dropped:
+            logger.debug("Skipped %d agent-*.jsonl files", dropped)
+        return sorted(all_files, key=lambda f: f.stat().st_mtime)
 
     def _load_cache(self) -> dict | None:
         if not self.cache_path.exists():
@@ -261,7 +333,10 @@ class ContentMiner:
         # Per-session read-before-write tracking: file_path -> was_read
         session_reads: dict[str, set] = defaultdict(set)
         # tool_use_id -> (session_id, tool_name, file_path) for matching results
+        # Note: cleared per-file to prevent unbounded growth
         pending_tool_uses: dict[str, tuple] = {}
+        # Per-session ordered timestamps for inter-message timing (Phase 6.1)
+        session_timestamps: dict[str, list[str]] = defaultdict(list)
 
         # Output lists
         tool_calls: list[dict] = []
@@ -295,6 +370,8 @@ class ContentMiner:
 
         for file_path in self._get_all_jsonl_files():
             project_name = self._extract_project_name(file_path)
+            # Clear per-file to prevent unbounded growth across many sessions
+            pending_tool_uses.clear()
             try:
                 with open(file_path) as f:
                     for line in f:
@@ -365,6 +442,8 @@ class ContentMiner:
                                 "writes_with_prior_read_count": 0,
                                 "writes_total_count": 0,
                                 "has_code_blocks": 0,
+                                "git_revert_count": 0,
+                                "fast_approval_count": 0,
                             }
 
                         s = sessions[session_id]
@@ -387,6 +466,10 @@ class ContentMiner:
                         content = msg.get("content", [])
                         if not isinstance(content, list):
                             content = []
+
+                        # Track timestamp for inter-message timing (Phase 6.1)
+                        if timestamp:
+                            session_timestamps[session_id].append(timestamp)
 
                         # ── USER MESSAGE ──
                         if line_type == "user":
@@ -441,7 +524,7 @@ class ContentMiner:
                                 classification = "new_instruction"
                                 if _CORRECTION_RE.search(full_text):
                                     classification = "correction"
-                                elif text_length < 80 and _APPROVAL_RE.search(full_text):
+                                elif text_length < 150 and _APPROVAL_RE.search(full_text):
                                     classification = "approval"
                                 elif (
                                     _FILE_PATH_RE.search(full_text)
@@ -453,8 +536,11 @@ class ContentMiner:
                                 s[f"intervention_{classification}"] += 1
                                 d[f"intervention_{classification}"] += 1
 
-                                # Question detection: find ? outside code blocks
+                                # Question detection: strip fenced code, inline code,
+                                # and URLs before checking for ? to avoid false positives
                                 text_no_code = _FENCED_CODE_RE.sub("", full_text)
+                                text_no_code = _INLINE_CODE_RE.sub("", text_no_code)
+                                text_no_code = re.sub(r"https?://\S+", "", text_no_code)
                                 if re.search(r"\?\s|\?$", text_no_code):
                                     s["human_questions_count"] += 1
                                 # Code detection: triple backticks or proper inline code
@@ -543,6 +629,7 @@ class ContentMiner:
                                     fetch_url = None
                                     grep_pattern = None
                                     edit_category = None
+                                    is_git_revert = False
 
                                     if tool_name in ("Read", "Glob"):
                                         file_path_val = inp.get("file_path") or inp.get("path", "")
@@ -583,6 +670,10 @@ class ContentMiner:
                                         bash_description = inp.get("description", "")[:200] or None
                                         install_packages = _extract_install_packages(cmd)
                                         is_test_command = _is_test_command(cmd, bash_description or "")
+                                        # Phase 6.4: detect git revert/undo operations
+                                        if cmd and _GIT_REVERT_RE.search(cmd):
+                                            s["git_revert_count"] += 1
+                                            is_git_revert = True
 
                                     elif tool_name == "Grep":
                                         file_path_val = inp.get("path", "")
@@ -622,6 +713,7 @@ class ContentMiner:
                                             "fetch_url": fetch_url,
                                             "grep_pattern": grep_pattern,
                                             "edit_category": edit_category,
+                                            "is_git_revert": is_git_revert,
                                         }
                                     )
 
@@ -636,7 +728,10 @@ class ContentMiner:
             except OSError:
                 continue
 
-        # ── Post-process sessions: compute autonomy runs ──
+        # ── Post-process sessions: compute autonomy runs + timing ──
+        # Phase 1.1 note: session_msg_roles appends "assistant" once per JSONL line.
+        # In Claude Code JSONL, each assistant turn IS one line (tool_use blocks are
+        # within a single message). So this correctly counts API turns, not sub-calls.
         session_stats_list = []
         for sid, s in sessions.items():
             # Compute autonomy run lengths
@@ -645,12 +740,33 @@ class ContentMiner:
             avg_run = sum(runs) / len(runs) if runs else 0
             max_run = max(runs) if runs else 0
 
+            # Phase 6.1: compute inter-message timing stats
+            timestamps = session_timestamps.get(sid, [])
+            avg_time_between = 0.0
+            fast_approval_count = s.get("fast_approval_count", 0)
+            if len(timestamps) >= 2:
+                intervals = []
+                for i in range(1, len(timestamps)):
+                    try:
+                        t0 = datetime.fromisoformat(timestamps[i - 1].replace("Z", "+00:00"))
+                        t1 = datetime.fromisoformat(timestamps[i].replace("Z", "+00:00"))
+                        diff_secs = (t1 - t0).total_seconds()
+                        if 0 <= diff_secs < 3600:  # ignore gaps > 1h (idle)
+                            intervals.append(diff_secs)
+                            if diff_secs < 5:
+                                fast_approval_count += 1
+                    except (ValueError, OverflowError):
+                        continue
+                avg_time_between = sum(intervals) / len(intervals) if intervals else 0.0
+
             # Convert sets to counts/lists
             s["unique_tools"] = sorted(s["unique_tools"])
             s["unique_files_touched"] = len(session_files.get(sid, set()))
             s["cwd_switch_count"] = len(session_cwds.get(sid, set()))
             s["avg_autonomy_run_length"] = round(avg_run, 2)
             s["max_autonomy_run_length"] = max_run
+            s["avg_time_between_messages"] = round(avg_time_between, 2)
+            s["fast_approval_count"] = fast_approval_count
 
             session_stats_list.append(s)
 

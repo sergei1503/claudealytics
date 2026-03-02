@@ -25,6 +25,7 @@ dependencies = [
     "pydantic>=2.7",
     "python-frontmatter>=1.1",
     "httpx>=0.27",
+    "pandas>=2.2",
 ]
 
 [project.scripts]
@@ -36,7 +37,7 @@ Repository = "https://github.com/sergei1503/claudealytics"
 Issues = "https://github.com/sergei1503/claudealytics/issues"
 
 [project.optional-dependencies]
-dashboard = ["streamlit>=1.38", "plotly>=5.22", "pandas>=2.2"]
+dashboard = ["streamlit>=1.38", "plotly>=5.22"]
 test = ["pytest>=8.0", "pytest-mock>=3.14"]
 dev = ["ruff>=0.8"]
 

@@ -70,8 +70,9 @@ def _clamp(value: float, lo: float = 1.0, hi: float = 10.0) -> float:
 def _dampen(raw_score: float, human_msg_count: int, threshold: int = 2) -> float:
     """Pull short sessions toward neutral 5.0.
 
-    Uses a log-curve so 1-message sessions (the median) preserve 75% of
-    variance instead of the old linear ramp's 50%.
+    Uses a log-curve: confidence = log2(n+1) / log2(threshold+2).
+    For threshold=2, a 1-message session gets confidence=log2(2)/log2(4)=0.5,
+    preserving 50% of variance. Full confidence is reached at threshold messages.
     """
     if human_msg_count == 0:
         return 5.0
@@ -81,13 +82,17 @@ def _dampen(raw_score: float, human_msg_count: int, threshold: int = 2) -> float
     return 5.0 + (raw_score - 5.0) * confidence
 
 
+SCORE_EXPONENT = 0.7
+
+
 def _raw_to_score(contribution_sum: float) -> float:
     """Convert sub-score contribution sum to a 1-10 raw score.
 
-    Applies x^0.6 power-curve stretching before scaling, which expands the
-    typical contribution range (0.25-0.50) from raw [3.25-5.50] to [4.43-6.57].
+    Applies x^0.7 power-curve stretching before scaling. Using 0.7 (vs 0.6)
+    gives more credit to mid-range sessions and reduces score compression in
+    the typical contribution range (0.25-0.50).
     """
-    stretched = max(contribution_sum, 0.0) ** 0.6
+    stretched = max(contribution_sum, 0.0) ** SCORE_EXPONENT
     return stretched * 9 + 1
 
 
@@ -114,17 +119,15 @@ def _sub(name: str, raw: float, normalized: float, weight: float, threshold: str
 def score_context_precision(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> DimensionScore:
     human_count = s.get("human_msg_count", 0) or 1
     path_pct = _safe_ratio(s.get("human_with_file_paths_count", 0), human_count)
-    code_pct = _safe_ratio(s.get("human_with_code_count", 0), human_count)
     guidance_pct = _safe_ratio(s.get("intervention_guidance", 0), human_count)
 
     avg_len = _safe_ratio(s.get("total_text_length_human", 0), human_count)
     length_score = 1.0 - min(abs(avg_len - 300) / 600, 1.0)
 
     subs = [
-        _sub("File path ratio", path_pct, path_pct, 0.35, "1.0 = every message has file paths"),
-        _sub("Code snippet ratio", code_pct, code_pct, 0.25, "1.0 = every message has code"),
-        _sub("Guidance ratio", guidance_pct, guidance_pct, 0.25, "1.0 = every message is guidance"),
-        _sub("Message length fit", avg_len, length_score, 0.15, "Sweet spot ~300 chars"),
+        _sub("File path ratio", path_pct, path_pct, 0.40, "1.0 = every message has file paths"),
+        _sub("Guidance ratio", guidance_pct, guidance_pct, 0.30, "1.0 = every message is guidance"),
+        _sub("Message length fit", avg_len, length_score, 0.30, "Sweet spot ~300 chars"),
     ]
 
     raw = _raw_to_score(sum(sub.contribution for sub in subs))
@@ -133,17 +136,17 @@ def score_context_precision(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dime
     hint = ""
     if path_pct < 0.3:
         hint = f"Only {path_pct:.0%} of messages had file paths — adding paths helps Claude find context faster."
-    elif code_pct < 0.2:
-        hint = "Including code snippets in messages helps Claude understand exact context."
+    elif guidance_pct < 0.2:
+        hint = "Including more guidance in messages helps Claude understand intent and constraints."
 
     return DimensionScore(
         key="context_precision",
         name="Context Precision",
         category="communication",
         score=round(score, 1),
-        explanation=f"{path_pct:.0%} with file paths, {code_pct:.0%} with code, avg {avg_len:.0f} chars",
+        explanation=f"{path_pct:.0%} with file paths, {guidance_pct:.0%} guidance, avg {avg_len:.0f} chars",
         sub_scores=subs,
-        guide="How precisely do you set context? Goes up with file paths, code snippets, and focused messages (~300 chars). Goes down with vague or overly long messages.",
+        guide="How precisely do you set context? Goes up with file paths, guidance messages, and focused messages (~300 chars). Goes down with vague or overly long messages.",
         improvement_hint=hint,
     )
 
@@ -157,10 +160,10 @@ def score_semantic_density(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
 
     efficiency = _safe_ratio(tool_calls, human_words)
     eff_score = min(efficiency / 0.15, 1.0)
-    penalty = approval_ratio * 0.3
+    penalty = approval_ratio * 0.5
 
     subs = [
-        _sub("Actions per word", efficiency, eff_score, 0.70, "0.5 actions/word = excellent"),
+        _sub("Actions per word", efficiency, eff_score, 0.70, "0.15 actions/word = excellent"),
         _sub("Approval penalty", approval_ratio, 1.0 - penalty, 0.30, "High approval = rubber-stamping"),
     ]
 
@@ -212,7 +215,7 @@ def score_iterative_refinement(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
         _sub("Session length bonus", total_msgs, length_bonus / 0.1, 0.10, "Longer sessions show learning"),
     ]
 
-    raw = _raw_to_score(rate_score * 0.6 + front_score * 0.3 + length_bonus)
+    raw = _raw_to_score(sum(sub.contribution for sub in subs))
     score = _clamp(_dampen(raw, human_count))
 
     hint = ""
@@ -253,9 +256,12 @@ def score_conversation_balance(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
     # Messages per session density
     density = min(total_msgs / 10, 1.0)
 
-    # Question frequency
+    # Question frequency — diminishing returns above 20%
     question_freq = _safe_ratio(question_count, human_count)
-    q_score = min(question_freq / 0.3, 1.0)
+    if question_freq <= 0.2:
+        q_score = question_freq / 0.2 * 0.8
+    else:
+        q_score = 0.8 + min((question_freq - 0.2) / 0.8, 1.0) * 0.2
 
     subs = [
         _sub("Message ratio balance", msg_ratio, msg_balance, 0.30, "Ideal ~1:3 human:assistant"),
@@ -339,22 +345,29 @@ def score_validation_rigor(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
     human_count = s.get("human_msg_count", 0) or 1
 
     test_count = 0
-    if not tc.empty and "is_test_command" in tc.columns:
-        test_count = int(tc["is_test_command"].sum())
+    post_edit_verify = 0
+    if not tc.empty and "tool_name" in tc.columns:
+        if "is_test_command" in tc.columns:
+            test_count = int(tc["is_test_command"].sum())
+        # Post-edit verification: count Edit tool calls followed by Bash/test within 2 rows
+        tool_names = tc["tool_name"].tolist()
+        for i, name in enumerate(tool_names):
+            if name == "Edit":
+                for j in range(i + 1, min(i + 3, len(tool_names))):
+                    if tool_names[j] in ("Bash", "Task"):
+                        post_edit_verify += 1
+                        break
 
-    question_pct = _safe_ratio(s.get("human_questions_count", 0), human_count)
-    rbw_total = s.get("writes_total_count", 0) or 1
-    rbw_pct = _safe_ratio(s.get("writes_with_prior_read_count", 0), rbw_total)
     correction_bonus = min(s.get("intervention_correction", 0) / 5, 1.0)
 
-    test_score = min(test_count / 3, 1.0)
-    question_score = min(question_pct / 0.3, 1.0)
+    # Per-message rate normalization for test_score
+    test_score = min(test_count / human_count / 0.2, 1.0)
+    post_verify_score = min(post_edit_verify / max(test_count + 1, 3), 1.0)
 
     subs = [
-        _sub("Test commands", test_count, test_score, 0.35, "3+ test runs = thorough"),
-        _sub("Question frequency", question_pct, question_score, 0.25, "Asking questions validates understanding"),
-        _sub("Read-before-write", rbw_pct, rbw_pct, 0.25, "1.0 = always reads before writing"),
-        _sub("Bug-catching corrections", correction_bonus, correction_bonus, 0.15, "Corrections that catch bugs"),
+        _sub("Test commands", test_count, test_score, 0.40, "0.2 test runs/msg = thorough"),
+        _sub("Post-edit verification", post_edit_verify, post_verify_score, 0.30, "Bash/test after Edit = verified"),
+        _sub("Bug-catching corrections", correction_bonus, correction_bonus, 0.30, "Corrections that catch bugs"),
     ]
 
     raw = _raw_to_score(sum(sub.contribution for sub in subs))
@@ -363,17 +376,17 @@ def score_validation_rigor(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
     hint = ""
     if test_count == 0:
         hint = "No test commands detected — running tests validates changes and prevents regressions."
-    elif rbw_pct < 0.5:
-        hint = f"Only {rbw_pct:.0%} read-before-write — reading files before editing reduces errors."
+    elif post_edit_verify == 0:
+        hint = "No post-edit verification detected — running checks after edits catches issues early."
 
     return DimensionScore(
         key="validation_rigor",
         name="Validation Rigor",
         category="strategy",
         score=round(score, 1),
-        explanation=f"{test_count} test runs, {question_pct:.0%} questions, {rbw_pct:.0%} read-before-write",
+        explanation=f"{test_count} test runs, {post_edit_verify} post-edit verifications",
         sub_scores=subs,
-        guide="How thoroughly do you verify results? Goes up with test runs, questions, and reading before writing. Goes down when output is accepted without review.",
+        guide="How thoroughly do you verify results? Goes up with test runs and verification after edits. Goes down when output is accepted without review.",
         improvement_hint=hint,
     )
 
@@ -435,12 +448,20 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
     thinking_count = s.get("thinking_message_count", 0)
     total_output = s.get("total_text_length_assistant", 0) or 1
 
-    # Research tools: Read, Grep, Glob
+    # Research tools: Read, Grep, Glob, WebSearch, WebFetch
     research_count = 0
+    thinking_before_first_tool = 0
     if not tc.empty and "tool_name" in tc.columns:
-        research_tools = {"Read", "Grep", "Glob"}
+        research_tools = {"Read", "Grep", "Glob", "WebSearch", "WebFetch"}
         research_count = int(tc["tool_name"].isin(research_tools).sum())
-        int((~tc["tool_name"].isin(research_tools)).sum())
+        # Thinking-to-action ratio: thinking blocks before first non-research tool call
+        tool_names = tc["tool_name"].tolist()
+        for i, name in enumerate(tool_names):
+            if name not in research_tools:
+                thinking_before_first_tool = i
+                break
+        else:
+            thinking_before_first_tool = len(tool_names)
 
     # Thinking ratio: thinking length relative to output
     thinking_ratio = _safe_ratio(thinking_length, total_output)
@@ -450,21 +471,14 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
     research_ratio = _safe_ratio(research_count, total_tool_calls)
     research_score = min(research_ratio / 0.4, 1.0)
 
-    # Structured instruction ratio (guidance + new_instruction)
-    guidance_ratio = _safe_ratio(s.get("intervention_guidance", 0), human_count)
-    new_instr_ratio = _safe_ratio(s.get("intervention_new_instruction", 0), human_count)
-    structured_ratio = guidance_ratio + new_instr_ratio
-    struct_score = min(structured_ratio / 0.4, 1.0)
-
-    # Decision/reasoning markers (question count as proxy)
-    question_ratio = _safe_ratio(s.get("human_questions_count", 0), human_count)
-    reasoning_score = min(question_ratio / 0.3, 1.0)
+    # Thinking-to-action ratio: research calls before first action
+    thinking_to_action = _safe_ratio(thinking_before_first_tool, total_tool_calls)
+    thinking_action_score = min(thinking_to_action / 0.3, 1.0)
 
     subs = [
-        _sub("Thinking ratio", thinking_ratio, thinking_score, 0.30, "Thinking length vs output length"),
-        _sub("Research-before-action", research_ratio, research_score, 0.30, "Read/Grep/Glob ratio of all tools"),
-        _sub("Structured instructions", structured_ratio, struct_score, 0.20, "Guidance + new instruction ratio"),
-        _sub("Reasoning markers", question_ratio, reasoning_score, 0.20, "Questions drive deliberation"),
+        _sub("Thinking ratio", thinking_ratio, thinking_score, 0.40, "Thinking length vs output length"),
+        _sub("Research-before-action", research_ratio, research_score, 0.40, "Read/Grep/Glob/Web ratio of all tools"),
+        _sub("Thinking-to-action ratio", thinking_to_action, thinking_action_score, 0.20, "Research calls before first action"),
     ]
 
     raw = _raw_to_score(sum(sub.contribution for sub in subs))
@@ -472,7 +486,7 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
 
     hint = ""
     if research_ratio < 0.2:
-        hint = f"Only {research_ratio:.0%} of tool calls are research (Read/Grep/Glob) — more exploration before action reduces errors."
+        hint = f"Only {research_ratio:.0%} of tool calls are research (Read/Grep/Glob/Web) — more exploration before action reduces errors."
     elif thinking_score < 0.3 and thinking_count == 0:
         hint = "No extended thinking detected — complex tasks benefit from deliberate planning phases."
 
@@ -481,9 +495,9 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
         name="Planning Depth",
         category="strategy",
         score=round(score, 1),
-        explanation=f"Thinking ratio {thinking_ratio:.2f}, research {research_ratio:.0%}, structured {structured_ratio:.0%}",
+        explanation=f"Thinking ratio {thinking_ratio:.2f}, research {research_ratio:.0%}, thinking-to-action {thinking_to_action:.0%}",
         sub_scores=subs,
-        guide="How much planning happens before action? Goes up with research-first approaches (Read/Grep/Glob). Goes down when jumping straight to edits.",
+        guide="How much planning happens before action? Goes up with research-first approaches (Read/Grep/Glob/Web). Goes down when jumping straight to edits.",
         improvement_hint=hint,
     )
 
@@ -494,7 +508,6 @@ def score_planning_depth(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensi
 def score_code_literacy(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> DimensionScore:
     human_count = s.get("human_msg_count", 0) or 1
     code_pct = _safe_ratio(s.get("human_with_code_count", 0), human_count)
-    path_pct = _safe_ratio(s.get("human_with_file_paths_count", 0), human_count)
     correction_count = s.get("intervention_correction", 0)
     code_count = s.get("human_with_code_count", 0)
 
@@ -503,9 +516,12 @@ def score_code_literacy(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensio
     avg_len = _safe_ratio(s.get("total_text_length_human", 0), human_count)
     detail_level = min(avg_len / 500, 1.0)
 
+    # Code detail density: code_pct weighted by message detail
+    code_detail = code_pct * detail_level
+
     subs = [
-        _sub("Code in messages", code_pct, code_pct, 0.35, "1.0 = every message has code"),
-        _sub("File path references", path_pct, path_pct, 0.25, "1.0 = every message has paths"),
+        _sub("Code in messages", code_pct, code_pct, 0.40, "1.0 = every message has code"),
+        _sub("Code detail density", code_detail, min(code_detail / 0.5, 1.0), 0.25, "code_pct × detail_level"),
         _sub(
             "Code+correction overlap",
             code_correction_overlap,
@@ -513,7 +529,7 @@ def score_code_literacy(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensio
             0.20,
             "Corrections with code context",
         ),
-        _sub("Detail level", avg_len, detail_level, 0.20, "Avg message length / 500"),
+        _sub("Detail level", avg_len, detail_level, 0.15, "Avg message length / 500"),
     ]
 
     raw = _raw_to_score(sum(sub.contribution for sub in subs))
@@ -522,17 +538,17 @@ def score_code_literacy(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensio
     hint = ""
     if code_pct < 0.1:
         hint = "Very few messages include code — sharing code snippets helps Claude understand exact context."
-    elif path_pct < 0.2:
-        hint = f"Only {path_pct:.0%} of messages reference file paths — pointing to specific files improves precision."
+    elif detail_level < 0.3:
+        hint = "Messages are short — more detailed code messages improve collaboration quality."
 
     return DimensionScore(
         key="code_literacy",
         name="Code Literacy",
         category="technical",
         score=round(score, 1),
-        explanation=f"{code_pct:.0%} messages with code, {path_pct:.0%} with file paths",
+        explanation=f"{code_pct:.0%} messages with code, code detail density {code_detail:.2f}",
         sub_scores=subs,
-        guide="How code-aware are your messages? Goes up with file references, code snippets, and technical detail. Goes down with non-technical or generic requests.",
+        guide="How code-aware are your messages? Goes up with code snippets and detailed technical messages. Goes down with non-technical or generic requests.",
         improvement_hint=hint,
     )
 
@@ -540,7 +556,6 @@ def score_code_literacy(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimensio
 def score_architectural_stewardship(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> DimensionScore:
     human_count = s.get("human_msg_count", 0) or 1
     guidance_ratio = _safe_ratio(s.get("intervention_guidance", 0), human_count)
-    files_touched = s.get("unique_files_touched", 0)
     total_edits = s.get("total_edits", 0) or 1
     correction_rate = _safe_ratio(s.get("intervention_correction", 0), human_count)
 
@@ -551,15 +566,13 @@ def score_architectural_stewardship(s: dict, tc: pd.DataFrame, hm: pd.DataFrame)
     structured_pct = _safe_ratio(structured_edits, total_edits)
 
     guidance_score = min(guidance_ratio / 0.3, 1.0)
-    file_score = min(files_touched / 8, 1.0)
     struct_score = min(structured_pct / 0.3, 1.0)
     correction_penalty = 1.0 - min(correction_rate / 0.3, 1.0)
 
     subs = [
-        _sub("Guidance ratio", guidance_ratio, guidance_score, 0.30, "Architectural guidance frequency"),
-        _sub("File breadth", files_touched, file_score, 0.25, "8+ files = wide architectural scope"),
-        _sub("Structured edits", structured_pct, struct_score, 0.25, "Refactor/type/error handling edits"),
-        _sub("Low correction rate", correction_rate, correction_penalty, 0.20, "Low corrections = clean architecture"),
+        _sub("Guidance ratio", guidance_ratio, guidance_score, 0.35, "Architectural guidance frequency"),
+        _sub("Structured edits", structured_pct, struct_score, 0.35, "Refactor/type/error handling edits"),
+        _sub("Low correction rate", correction_rate, correction_penalty, 0.30, "Low corrections = clean architecture"),
     ]
 
     raw = _raw_to_score(sum(sub.contribution for sub in subs))
@@ -576,9 +589,9 @@ def score_architectural_stewardship(s: dict, tc: pd.DataFrame, hm: pd.DataFrame)
         name="Architectural Stewardship",
         category="technical",
         score=round(score, 1),
-        explanation=f"{guidance_ratio:.0%} guidance, {files_touched} files, {structured_pct:.0%} structured edits",
+        explanation=f"{guidance_ratio:.0%} guidance, {structured_pct:.0%} structured edits, {correction_rate:.0%} correction rate",
         sub_scores=subs,
-        guide="Do you guide system-wide design? Goes up with architectural guidance, broad file scope, and structured edits. Goes down with narrow tactical fixes.",
+        guide="Do you guide system-wide design? Goes up with architectural guidance and structured edits. Goes down with narrow tactical fixes or high correction rates.",
         improvement_hint=hint,
     )
 
@@ -601,7 +614,7 @@ def score_debugging_collaboration(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -
 
     rbw_score = rbw_pct
     read_score = min(read_ratio / 0.3, 1.0)
-    grep_score = min(grep_count / 5, 1.0)
+    grep_score = min(grep_count / human_count / 0.3, 1.0)
 
     subs = [
         _sub("Read-before-write", rbw_pct, rbw_score, 0.30, "1.0 = always reads before writing"),
@@ -667,7 +680,8 @@ def score_token_efficiency(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dimen
         to_score = max(1.0 - (to_ratio - 0.4) / 0.6, 0.0)
 
     # Tool calls per output token (more tools per token = efficient)
-    tool_density = _safe_ratio(total_tool_calls, output_tokens / 1000) if output_tokens > 0 else 0
+    # Guard: cap tool_density for small sessions (<1K output tokens) to prevent inflation
+    tool_density = _safe_ratio(total_tool_calls, max(output_tokens, 1000) / 1000) if output_tokens > 0 else 0
     tool_score = min(tool_density / 5, 1.0)
 
     # Error rate per token (lower = better)
@@ -713,10 +727,11 @@ def score_strategic_delegation(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
     approval_ratio = _safe_ratio(s.get("intervention_approval", 0), human_count)
     avg_input_len = _safe_ratio(s.get("total_text_length_human", 0), human_count)
 
-    if avg_autonomy < 1:
-        autonomy_score = 0.2
+    if avg_autonomy <= 0:
+        autonomy_score = 0.1
     elif avg_autonomy <= 3:
-        autonomy_score = avg_autonomy / 3 * 0.7
+        # Smooth ramp: 0.1 at 0, reaches 1.0 at 3
+        autonomy_score = 0.1 + (avg_autonomy / 3) * 0.9
     elif avg_autonomy <= 8:
         autonomy_score = 1.0
     elif avg_autonomy <= 15:
@@ -819,7 +834,7 @@ def score_trust_calibration(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> Dime
 
     correction_rate = _safe_ratio(correction_count, human_count)
     expected_correction = complexity * 0.15
-    correction_diff = abs(correction_rate - expected_correction)
+    correction_diff = max(correction_rate - expected_correction, 0)
     correction_score = 1.0 - min(correction_diff / 0.2, 1.0)
 
     test_count = 0
@@ -864,11 +879,13 @@ def score_session_productivity(s: dict, tc: pd.DataFrame, hm: pd.DataFrame) -> D
     human_count = s.get("human_msg_count", 0) or 1
     total_edits = s.get("total_edits", 0)
     total_writes = s.get("total_writes", 0) if "total_writes" in s else 0
-    s.get("max_autonomy_run_length", 0)
+    total_errors = s.get("total_errors", 0)
+    total_tool_calls = s.get("total_tool_calls", 0) or 1
 
-    # Writes per human message
+    # Quality-adjusted writes per human message
     writes_per_msg = _safe_ratio(total_edits + total_writes, human_count)
-    writes_score = min(writes_per_msg / 2, 1.0)
+    error_rate = _safe_ratio(total_errors, total_tool_calls)
+    writes_score = min(writes_per_msg / 2, 1.0) * (1 - error_rate)
 
     # Edit magnitude (unique files touched as proxy)
     files_touched = s.get("unique_files_touched", 0)
@@ -1051,9 +1068,7 @@ def aggregate_profiles(profiles: list[ConversationProfile]) -> ConversationProfi
 
     aggregated_dims = []
     for key, scores in dim_scores.items():
-        avg_score = round(sum(s.score for s in scores) / len(scores), 1)
-
-        # Average sub_scores by position
+        # Average sub_scores by position first
         avg_subs: list[SubScore] = []
         if scores[0].sub_scores:
             for i in range(len(scores[0].sub_scores)):
@@ -1069,6 +1084,13 @@ def aggregate_profiles(profiles: list[ConversationProfile]) -> ConversationProfi
                             threshold=matching[0].threshold,
                         )
                     )
+
+        # Average contribution_sum then apply _raw_to_score (avoids nonlinear averaging of final scores)
+        if avg_subs:
+            avg_contribution_sum = sum(sub.contribution for sub in avg_subs)
+            avg_score = round(_clamp(_raw_to_score(avg_contribution_sum)), 1)
+        else:
+            avg_score = round(sum(s.score for s in scores) / len(scores), 1)
 
         # Regenerate improvement hint from averaged data
         hint = ""

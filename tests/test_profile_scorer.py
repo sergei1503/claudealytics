@@ -85,24 +85,24 @@ class TestDampen:
 
 class TestRawToScore:
     def test_zero_contribution(self):
-        # 0^0.6 * 9 + 1 = 0 + 1 = 1.0
+        # 0^0.7 * 9 + 1 = 0 + 1 = 1.0
         assert abs(_raw_to_score(0.0) - 1.0) < 0.01
 
     def test_full_contribution(self):
-        # 1.0^0.6 * 9 + 1 = 10.0
+        # 1.0^0.7 * 9 + 1 = 10.0
         assert abs(_raw_to_score(1.0) - 10.0) < 0.01
 
     def test_typical_low_contribution(self):
-        # 0.25^0.6 ≈ 0.435 -> 0.435 * 9 + 1 ≈ 4.92
+        # 0.25^0.7 ≈ 0.394 -> 0.394 * 9 + 1 ≈ 4.54
         result = _raw_to_score(0.25)
-        expected = 0.25**0.6 * 9 + 1
+        expected = 0.25**0.7 * 9 + 1
         assert abs(result - expected) < 0.01
         assert result > 4.0  # Should be meaningfully above minimum
 
     def test_typical_high_contribution(self):
-        # 0.50^0.6 ≈ 0.660 -> 0.660 * 9 + 1 ≈ 6.94
+        # 0.50^0.7 ≈ 0.616 -> 0.616 * 9 + 1 ≈ 6.54
         result = _raw_to_score(0.50)
-        expected = 0.50**0.6 * 9 + 1
+        expected = 0.50**0.7 * 9 + 1
         assert abs(result - expected) < 0.01
         assert result > 6.0  # Should be well above midpoint
 

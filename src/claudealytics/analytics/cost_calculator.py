@@ -6,9 +6,13 @@ Cache read tokens are priced at 10% of input, cache creation at 125% of input.
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from claudealytics.models.schemas import StatsCache
+
+logger = logging.getLogger(__name__)
 
 # Per million tokens (USD)
 MODEL_PRICING: dict[str, dict[str, float]] = {
@@ -26,7 +30,10 @@ DEFAULT_PRICING = {"input": 3.0, "output": 15.0}
 
 def _get_pricing(model: str) -> dict[str, float]:
     """Get pricing for a model, with fallback."""
-    return MODEL_PRICING.get(model, DEFAULT_PRICING)
+    if model not in MODEL_PRICING:
+        logger.warning("Unknown model %r — using fallback pricing ($3/$15 per 1M tokens)", model)
+        return DEFAULT_PRICING
+    return MODEL_PRICING[model]
 
 
 def estimate_model_costs(stats: StatsCache) -> pd.DataFrame:
@@ -41,6 +48,7 @@ def estimate_model_costs(stats: StatsCache) -> pd.DataFrame:
         input_cost = (usage.inputTokens / 1_000_000) * pricing["input"]
         output_cost = (usage.outputTokens / 1_000_000) * pricing["output"]
         cache_read_cost = (usage.cacheReadInputTokens / 1_000_000) * pricing["input"] * 0.1
+        # 1.25x approximation for cache creation; actual rate is 2.0x for 1h TTL
         cache_creation_cost = (usage.cacheCreationInputTokens / 1_000_000) * pricing["input"] * 1.25
 
         rows.append(
@@ -63,18 +71,22 @@ def estimate_model_costs(stats: StatsCache) -> pd.DataFrame:
 def daily_cost_estimate(stats: StatsCache) -> pd.DataFrame:
     """Estimate daily cost from dailyModelTokens.
 
-    Approximation: assumes all tokens are output tokens for a rough upper bound,
-    then divides by 2 to approximate a 50/50 input/output split.
-    In practice, we only have total tokens per model per day, not in/out split.
+    Uses the global input/output ratio from aggregate ModelUsageEntry data to
+    compute a weighted price per model, which is more accurate than a simple
+    average — sessions are typically ~80% input tokens.
     """
+    # Compute global input/output ratio from aggregate model usage
+    total_input = sum(u.inputTokens for u in stats.modelUsage.values())
+    total_output = sum(u.outputTokens for u in stats.modelUsage.values())
+    input_ratio = total_input / (total_input + total_output) if (total_input + total_output) > 0 else 0.8
+
     rows = []
     for entry in stats.dailyModelTokens:
         daily_cost = 0.0
         for model, tokens in entry.tokensByModel.items():
             pricing = _get_pricing(model)
-            # Use average of input and output price as approximation
-            avg_price = (pricing["input"] + pricing["output"]) / 2
-            daily_cost += (tokens / 1_000_000) * avg_price
+            weighted_price = pricing["input"] * input_ratio + pricing["output"] * (1 - input_ratio)
+            daily_cost += (tokens / 1_000_000) * weighted_price
         rows.append({"date": entry.date, "estimated_cost": round(daily_cost, 2)})
 
     if not rows:
