@@ -336,3 +336,45 @@ class ExportedProfile(BaseModel):
     llm_dimensions: list[ExportedLLMDimension] = Field(default_factory=list)
     llm_overall_score: float | None = None
     llm_sessions_scored: int = 0
+
+
+# ── Instruction Extraction (for batch LLM scoring) ────────────
+
+
+class SessionInstructions(BaseModel):
+    """Human messages extracted from a single session for LLM batch scoring."""
+
+    session_id: str
+    project: str = ""
+    date: str = ""
+    instructions: list[str] = Field(default_factory=list)
+    message_count: int = 0
+    total_word_count: int = 0
+
+
+# ── LLM Meta-Analysis (cross-session insights) ────────────────
+
+
+class InsightItem(BaseModel):
+    dimension: str
+    title: str
+    description: str
+    evidence: str = ""
+
+
+class TrendInsight(BaseModel):
+    dimension: str
+    direction: str  # improving | declining | stable
+    description: str
+
+
+class ProfileInsights(BaseModel):
+    narrative: str = ""
+    strengths: list[InsightItem] = Field(default_factory=list)
+    growth_areas: list[InsightItem] = Field(default_factory=list)
+    trends: list[TrendInsight] = Field(default_factory=list)
+    archetype: str = ""
+    archetype_description: str = ""
+    action_items: list[str] = Field(default_factory=list)
+    generated_at: str = ""
+    model_used: str = ""

@@ -167,6 +167,11 @@ def render(stats):
 
     st.divider()
 
+    # ── Weekly LLM Analysis ──────────────────────────────────────
+    _render_weekly_analysis_section(filtered_profiles)
+
+    st.divider()
+
     # ── Timeline: Score evolution ────────────────────────────────
     if len(filtered_profiles) > 1:
         _render_timeline(filtered_profiles)
@@ -707,22 +712,25 @@ def _render_llm_all_sessions(filtered_profiles, get_all_cached_fn):
 
 
 def _render_llm_radar(llm_profile):
-    """Render 6-axis LLM profile radar with teal→purple gradient."""
+    """Render 8-axis LLM profile radar with category-based colors."""
     dims = llm_profile.dimensions
     if not dims:
         return
 
-    labels = [d.name for d in dims]
-    scores = [d.score for d in dims]
+    # Order by category for visual grouping
+    cat_order = ["communication", "strategy", "technical", "autonomy"]
+    ordered_dims = []
+    for cat in cat_order:
+        ordered_dims.extend([d for d in dims if d.category == cat])
+    if not ordered_dims:
+        ordered_dims = dims
 
-    # Teal→purple gradient colors for each dimension
-    gradient = ["#14b8a6", "#0ea5e9", "#6366f1", "#8b5cf6", "#a855f7", "#d946ef"]
-    colors = gradient[: len(dims)]
-    while len(colors) < len(dims):
-        colors.append("#8b5cf6")
+    labels = [d.name for d in ordered_dims]
+    scores = [d.score for d in ordered_dims]
+    colors = [CATEGORY_COLORS.get(d.category, "#8b5cf6") for d in ordered_dims]
 
     hover_texts = []
-    for d in dims:
+    for d in ordered_dims:
         lines = [f"<b>{d.name}: {d.score}/10</b>"]
         if d.reasoning:
             lines.append(f"<br><i>{d.reasoning}</i>")
@@ -760,7 +768,7 @@ def _render_llm_radar(llm_profile):
         height=420,
         margin=dict(l=70, r=70, t=40, b=40),
         showlegend=False,
-        title=dict(text="LLM-Assessed Dimensions", font=dict(size=14)),
+        title=dict(text="LLM-Assessed Dimensions (8)", font=dict(size=14)),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -785,6 +793,299 @@ def _render_llm_details(llm_profile):
             f"Sampled: {llm_profile.messages_sampled} turn pairs | "
             f"Scored: {llm_profile.scored_at[:19] if llm_profile.scored_at else 'N/A'}"
         )
+
+
+def _render_weekly_analysis_section(filtered_profiles: list):
+    """Render the Weekly LLM Analysis section — batch scoring + insights pipeline."""
+    st.subheader("Weekly LLM Analysis")
+    st.caption("Batch-score last week's sessions and generate cross-session insights via Claude.")
+
+    try:
+        from claudealytics.analytics.aggregators.llm_meta_analyzer import (
+            generate_insights,
+            load_cached_insights,
+        )
+        from claudealytics.analytics.aggregators.llm_profile_scorer import (
+            get_all_cached_scores,
+            score_batch,
+        )
+        from claudealytics.analytics.parsers.instruction_extractor import (
+            extract_weekly_instructions,
+        )
+    except Exception as e:
+        st.warning(f"Weekly analysis unavailable: {e}")
+        return
+
+    # Check for cached insights first
+    cached_insights = load_cached_insights()
+    if cached_insights and cached_insights.narrative:
+        st.success("Insights generated — showing cached results (refreshes every 24h).")
+        _render_insights_card(cached_insights)
+
+        if st.button("Refresh Analysis", key="weekly_refresh_btn"):
+            _run_weekly_pipeline(
+                filtered_profiles,
+                extract_weekly_instructions,
+                score_batch,
+                generate_insights,
+                get_all_cached_scores,
+                force_refresh=True,
+            )
+        return
+
+    # No cached insights — show the pipeline button
+    col_info, col_btn = st.columns([3, 1])
+    with col_info:
+        st.info(
+            "Extracts human instructions from the last 7 days, "
+            "batch-scores them via Claude, then generates personalized insights."
+        )
+    with col_btn:
+        if st.button("Analyze Last Week", key="weekly_analyze_btn", type="primary"):
+            _run_weekly_pipeline(
+                filtered_profiles,
+                extract_weekly_instructions,
+                score_batch,
+                generate_insights,
+                get_all_cached_scores,
+            )
+
+
+def _run_weekly_pipeline(
+    filtered_profiles,
+    extract_fn,
+    score_batch_fn,
+    generate_insights_fn,
+    get_all_cached_fn,
+    force_refresh: bool = False,
+):
+    """Run the full weekly analysis pipeline with progress."""
+    from claudealytics.analytics.aggregators.llm_profile_scorer import BATCH_SIZE
+
+    progress = st.progress(0, text="Extracting instructions from last week...")
+
+    # Step 1: Extract instructions
+    weekly_instructions = extract_fn(days=7)
+    if not weekly_instructions:
+        progress.empty()
+        st.warning("No sessions found in the last 7 days.")
+        return
+
+    st.caption(
+        f"Found {len(weekly_instructions)} sessions with {sum(s.message_count for s in weekly_instructions)} messages"
+    )
+    progress.progress(0.15, text=f"Found {len(weekly_instructions)} sessions. Scoring batches...")
+
+    # Step 2: Batch score
+    all_profiles = []
+    all_errors = []
+    total_batches = max(1, (len(weekly_instructions) + BATCH_SIZE - 1) // BATCH_SIZE)
+
+    for i in range(0, len(weekly_instructions), BATCH_SIZE):
+        batch = weekly_instructions[i : i + BATCH_SIZE]
+        batch_num = i // BATCH_SIZE + 1
+        progress.progress(
+            0.15 + 0.6 * (batch_num / total_batches),
+            text=f"Scoring batch {batch_num}/{total_batches} ({len(batch)} sessions)...",
+        )
+        profiles, errors = score_batch_fn(batch)
+        all_profiles.extend(profiles)
+        all_errors.extend(errors)
+
+    if all_errors:
+        st.warning(f"{len(all_errors)} scoring errors (see details below)")
+        with st.expander("Scoring errors"):
+            for err in all_errors[:10]:
+                st.text(err)
+
+    if not all_profiles:
+        progress.empty()
+        st.error("No sessions were successfully scored.")
+        return
+
+    progress.progress(0.8, text="Generating cross-session insights via Opus...")
+
+    # Step 3: Generate insights
+    # Also pass heuristic profiles for richer analysis
+    heuristic_for_week = [
+        p for p in filtered_profiles if any(s.session_id == p.session_id for s in weekly_instructions)
+    ]
+
+    insights, error = generate_insights_fn(
+        all_profiles,
+        heuristic_profiles=heuristic_for_week or None,
+        force_refresh=force_refresh,
+    )
+
+    progress.progress(1.0, text="Done!")
+    progress.empty()
+
+    if error:
+        st.error(f"Insights generation failed: {error}")
+        # Still show scored data
+        if all_profiles:
+            st.subheader("Scored Sessions (without insights)")
+            _render_batch_summary(all_profiles)
+        return
+
+    _render_insights_card(insights)
+
+    # Show combined radar
+    if all_profiles:
+        st.divider()
+        _render_combined_radar(all_profiles, filtered_profiles)
+
+
+def _render_insights_card(insights):
+    """Render the ProfileInsights as a rich card layout."""
+    if not insights.narrative:
+        return
+
+    # Archetype badge
+    if insights.archetype:
+        st.markdown(
+            f"<div style='text-align:center;margin-bottom:16px'>"
+            f"<span style='background:linear-gradient(135deg, #6366f1, #14b8a6);padding:8px 20px;"
+            f"border-radius:20px;font-size:1.1em;font-weight:bold;color:white'>"
+            f"{insights.archetype}"
+            f"</span></div>",
+            unsafe_allow_html=True,
+        )
+        if insights.archetype_description:
+            st.caption(insights.archetype_description)
+
+    # Narrative
+    with st.expander("Full Assessment", expanded=True):
+        st.markdown(insights.narrative)
+
+    # Strengths and Growth Areas side by side
+    col_strengths, col_growth = st.columns(2)
+
+    with col_strengths:
+        st.markdown("**Strengths**")
+        for s in insights.strengths:
+            evidence_html = "<br><i style='color:#6b7280;font-size:0.85em'>" + s.evidence + "</i>" if s.evidence else ""
+            st.markdown(
+                f"<div style='background:#0d2818;border-left:3px solid #22c55e;padding:8px 12px;"
+                f"margin-bottom:8px;border-radius:4px'>"
+                f"<b>{s.title}</b><br>"
+                f"<span style='color:#a3a3a3;font-size:0.9em'>{s.description}</span>"
+                f"{evidence_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    with col_growth:
+        st.markdown("**Growth Areas**")
+        for g in insights.growth_areas:
+            evidence_html = "<br><i style='color:#6b7280;font-size:0.85em'>" + g.evidence + "</i>" if g.evidence else ""
+            st.markdown(
+                f"<div style='background:#1c1007;border-left:3px solid #f59e0b;padding:8px 12px;"
+                f"margin-bottom:8px;border-radius:4px'>"
+                f"<b>{g.title}</b><br>"
+                f"<span style='color:#a3a3a3;font-size:0.9em'>{g.description}</span>"
+                f"{evidence_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    # Trends
+    if insights.trends:
+        st.markdown("**Trends**")
+        for t in insights.trends:
+            arrow = {"improving": "\u2191", "declining": "\u2193", "stable": "\u2192"}.get(t.direction, "\u2192")
+            color = {"improving": "#22c55e", "declining": "#ef4444", "stable": "#a3a3a3"}.get(t.direction, "#a3a3a3")
+            st.markdown(
+                f"<span style='color:{color};font-weight:bold'>{arrow}</span> **{t.dimension}**: {t.description}",
+                unsafe_allow_html=True,
+            )
+
+    # Action items
+    if insights.action_items:
+        st.markdown("**Action Items for Next Week**")
+        for item in insights.action_items:
+            st.checkbox(item, key=f"action_{hash(item)}", value=False)
+
+    # Metadata
+    if insights.generated_at:
+        st.caption(f"Generated: {insights.generated_at[:19]} | Model: {insights.model_used}")
+
+
+def _render_batch_summary(profiles):
+    """Show summary stats from batch-scored profiles."""
+    dim_scores: dict[str, list[float]] = {}
+    for p in profiles:
+        for d in p.dimensions:
+            dim_scores.setdefault(d.name, []).append(d.score)
+
+    for name, scores in sorted(dim_scores.items()):
+        avg = sum(scores) / len(scores)
+        st.metric(name, f"{avg:.1f}", delta=None)
+
+
+def _render_combined_radar(llm_profiles, heuristic_profiles):
+    """Render combined radar with LLM dims overlaid on heuristic profile."""
+    # Average LLM dims
+    llm_agg: dict[str, list[float]] = {}
+    llm_meta: dict[str, dict] = {}
+    for p in llm_profiles:
+        for d in p.dimensions:
+            llm_agg.setdefault(d.key, []).append(d.score)
+            if d.key not in llm_meta:
+                llm_meta[d.key] = {"name": d.name, "category": d.category}
+
+    if not llm_agg:
+        return
+
+    st.subheader("Combined Profile Radar")
+    st.caption("Heuristic (solid) vs LLM-assessed (dashed) dimensions")
+
+    # LLM radar trace
+    llm_labels = []
+    llm_scores = []
+    llm_colors = []
+    cat_order = ["communication", "strategy", "technical", "autonomy"]
+    for cat in cat_order:
+        for key, meta in llm_meta.items():
+            if meta["category"] == cat:
+                llm_labels.append(meta["name"])
+                llm_scores.append(round(sum(llm_agg[key]) / len(llm_agg[key]), 1))
+                llm_colors.append(CATEGORY_COLORS.get(cat, "#8b5cf6"))
+
+    if not llm_labels:
+        return
+
+    llm_labels_closed = llm_labels + [llm_labels[0]]
+    llm_scores_closed = llm_scores + [llm_scores[0]]
+    llm_colors_closed = llm_colors + [llm_colors[0]]
+
+    fig = go.Figure()
+
+    # LLM trace (dashed)
+    fig.add_trace(
+        go.Scatterpolar(
+            r=llm_scores_closed,
+            theta=llm_labels_closed,
+            fill="toself",
+            fillcolor="rgba(20, 184, 166, 0.08)",
+            line=dict(color="#14b8a6", width=2, dash="dash"),
+            marker=dict(color=llm_colors_closed, size=8),
+            name="LLM-Assessed",
+        )
+    )
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 10], tickvals=[2, 4, 6, 8, 10]),
+            angularaxis=dict(tickfont=dict(size=10)),
+        ),
+        height=480,
+        margin=dict(l=80, r=80, t=40, b=40),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        title=dict(text="LLM-Assessed Profile (Weekly)", font=dict(size=14)),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_timeline(profiles: list):
